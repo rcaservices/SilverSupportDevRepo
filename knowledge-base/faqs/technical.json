@@ -1,0 +1,36 @@
+{
+  "faqs": [
+    {
+      "id": 3,
+      "category": "technical",
+      "subcategory": "connectivity",
+      "title": "Internet connection troubleshooting",
+      "keywords": ["internet", "connection", "slow", "not working", "wifi"],
+      "content": "If you're experiencing internet connectivity issues, try these troubleshooting steps.",
+      "solution_steps": [
+        "Check if other devices can connect to the internet",
+        "Restart your modem and router",
+        "Wait 30 seconds between restarts",
+        "Check all cable connections",
+        "Run a speed test",
+        "Contact support if issues persist"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "technical",
+      "subcategory": "software",
+      "title": "Software installation issues",
+      "keywords": ["software", "install", "error", "failed", "download"],
+      "content": "If you're having trouble installing software, follow these steps to resolve common issues.",
+      "solution_steps": [
+        "Check system requirements",
+        "Ensure you have administrator privileges",
+        "Temporarily disable antivirus software",
+        "Clear temporary files",
+        "Download the software again",
+        "Try installing in safe mode"
+      ]
+    }
+  ]
+}

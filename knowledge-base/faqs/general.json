@@ -1,0 +1,34 @@
+{
+  "faqs": [
+    {
+      "id": 1,
+      "category": "general",
+      "subcategory": "account",
+      "title": "How to reset my password",
+      "keywords": ["password", "reset", "forgot", "login"],
+      "content": "To reset your password, go to the login page and click 'Forgot Password'. Enter your email address and follow the instructions sent to your email.",
+      "solution_steps": [
+        "Go to the login page",
+        "Click 'Forgot Password'",
+        "Enter your registered email address",
+        "Check your email for reset instructions",
+        "Follow the link in the email",
+        "Create a new password"
+      ]
+    },
+    {
+      "id": 2,
+      "category": "general",
+      "subcategory": "billing",
+      "title": "How to view my billing history",
+      "keywords": ["billing", "invoice", "payment", "history", "charges"],
+      "content": "You can view your billing history by logging into your account and navigating to the Billing section.",
+      "solution_steps": [
+        "Log into your account",
+        "Navigate to Account Settings",
+        "Click on 'Billing' tab",
+        "View your payment history and invoices"
+      ]
+    }
+  ]
+}

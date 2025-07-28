@@ -1,0 +1,57 @@
+{
+  "name": "ai-tech-support",
+  "version": "1.0.0",
+  "description": "AI-powered technical support service accessible via phone calls",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "migrate": "node scripts/migrate.js",
+    "seed": "node scripts/seed.js",
+    "import-faq": "node scripts/import-faq.js",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "docker:build": "docker build -t ai-tech-support .",
+    "docker:run": "docker-compose up",
+    "setup:db": "node scripts/setup-database.js"
+  },
+  "keywords": ["ai", "technical-support", "voice", "twilio", "whisper", "claude"],
+  "author": "Your Name",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "morgan": "^1.10.0",
+    "winston": "^3.10.0",
+    "pg": "^8.11.3",
+    "sequelize": "^6.32.1",
+    "twilio": "^4.15.0",
+    "@anthropic-ai/sdk": "^0.24.3",
+    "openai": "^4.8.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "joi": "^17.9.2",
+    "dotenv": "^16.3.1",
+    "compression": "^1.7.4",
+    "express-rate-limit": "^6.8.1",
+    "multer": "^1.4.5-lts.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.6.2",
+    "supertest": "^6.3.3",
+    "eslint": "^8.45.0",
+    "prettier": "^3.0.0",
+    "@babel/preset-env": "^7.22.9",
+    "@babel/core": "^7.22.9",
+    "babel-jest": "^29.6.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  }
+}
