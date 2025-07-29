@@ -33,7 +33,7 @@ class WebhookController {
       
       // Fallback response
       const response = new twilio.twiml.VoiceResponse();
-      response.say({ voice: 'alice' }, 'Welcome to technical support. Please hold while we connect you.');
+      response.say({ voice: 'Polly.Joanna-Neural' }, 'Welcome to technical support. Please hold while we connect you.');
       response.hangup();
       
       res.type('text/xml');
@@ -79,7 +79,7 @@ class WebhookController {
       if (transcription.error && transcription.confidence === 0) {
         logger.info('Skipping AI processing due to transcription failure');
         aiResponse = {
-          aiResponse: "I apologize, but I'm having trouble understanding your question due to audio quality issues. Could you please try calling back and speaking more clearly? Alternatively, you can contact our support team via email for assistance.",
+          aiResponse: "I apologize, but I'm having trouble understanding your question due to audio quality issues. Could you please try calling back and speaking more clearly?",
           confidence: 'low'
         };
       } else {
@@ -88,11 +88,12 @@ class WebhookController {
           logger.info('Generating AI response...');
           aiResponse = await aiService.generateSupportResponse(transcription.text);
           logger.info(`AI response generated successfully (confidence: ${aiResponse.confidence})`);
+          logger.info(`Knowledge base results found: ${aiResponse.knowledgeBaseResults?.length || 0}`);
           
         } catch (aiError) {
           logger.error(`AI service error: ${aiError.message}`);
           aiResponse = {
-            aiResponse: "I apologize, but I'm experiencing technical difficulties with my AI systems. Please try calling back in a few minutes, or contact our support team directly for immediate assistance.",
+            aiResponse: "I apologize, but I'm experiencing technical difficulties. Let me try to help you anyway.",
             confidence: 'low'
           };
         }
@@ -109,8 +110,14 @@ class WebhookController {
         }
       }
       
-      // Determine if escalation is needed
-      const shouldEscalate = aiResponse.confidence === 'low' || transcription.confidence < 0.5;
+      // More lenient escalation criteria
+      const shouldEscalate = (
+        transcription.confidence < 0.3 ||
+        (aiResponse.confidence === 'low' && (!aiResponse.knowledgeBaseResults || aiResponse.knowledgeBaseResults.length === 0))
+      );
+      
+      logger.info(`Escalation decision: ${shouldEscalate ? 'ESCALATE' : 'ANSWER DIRECTLY'}`);
+      logger.info(`Reasons: transcription confidence=${transcription.confidence}, AI confidence=${aiResponse.confidence}, KB results=${aiResponse.knowledgeBaseResults?.length || 0}`);
       
       // Generate TwiML response
       const twimlResponse = twilioService.createResponseWithAnswer(aiResponse.aiResponse, shouldEscalate);
@@ -124,8 +131,8 @@ class WebhookController {
       // Emergency fallback response
       const response = new twilio.twiml.VoiceResponse();
       response.say({
-        voice: 'alice'
-      }, 'I apologize for the technical difficulty. Our support team will call you back shortly. Thank you for your patience.');
+        voice: 'Polly.Joanna-Neural'
+      }, 'I apologize for the technical difficulty. Please try calling back in a few minutes.');
       response.hangup();
       
       res.type('text/xml');
@@ -149,7 +156,7 @@ class WebhookController {
       logger.error('Error in handleFollowUp:', error);
       
       const response = new twilio.twiml.VoiceResponse();
-      response.say({ voice: 'alice' }, 'Thank you for calling. Goodbye!');
+      response.say({ voice: 'Polly.Joanna-Neural' }, 'Thank you for calling. Goodbye!');
       response.hangup();
       
       res.type('text/xml');
@@ -182,9 +189,6 @@ class WebhookController {
       res.status(200).send('OK');
     }
   }
-}
-
-module.exports = new WebhookController();
 
   // Handle user interruptions during AI responses
   async handleInterruption(req, res) {
@@ -252,3 +256,6 @@ module.exports = new WebhookController();
       res.status(200).send('OK');
     }
   }
+}
+
+module.exports = new WebhookController();
