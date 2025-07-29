@@ -1,25 +1,13 @@
 const express = require('express');
 const router = express.Router();
+const webhookController = require('../controllers/webhookController');
 
-// POST /webhooks/twilio/incoming - Twilio incoming call webhook
-router.post('/twilio/incoming', (req, res) => {
-  res.type('text/xml');
-  res.send(`
-    <Response>
-      <Say voice="alice">Welcome to AI Technical Support. Please hold while we connect you.</Say>
-      <Pause length="1"/>
-    </Response>
-  `);
-});
-
-// POST /webhooks/twilio/recording - Twilio recording webhook
-router.post('/twilio/recording', (req, res) => {
-  res.json({ message: 'Recording webhook - coming soon' });
-});
-
-// POST /webhooks/twilio/status - Twilio status webhook
-router.post('/twilio/status', (req, res) => {
-  res.json({ message: 'Status webhook - coming soon' });
-});
+// Twilio webhook endpoints
+router.post('/twilio/incoming', webhookController.handleIncomingCall);
+router.post('/twilio/handle-recording', webhookController.handleRecording);
+router.post('/twilio/handle-follow-up', webhookController.handleFollowUp);
+router.post('/twilio/recording-complete', (req, res) => res.status(200).send('OK'));
+router.post('/twilio/follow-up-complete', (req, res) => res.status(200).send('OK'));
+router.post('/twilio/status', webhookController.handleCallStatus);
 
 module.exports = router;
