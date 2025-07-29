@@ -222,70 +222,15 @@ class WebhookController {
     }
   }
 
-  // Handle recording after interruption - FIXED VERSION
+  // Handle recording after interruption
   async handleInterruptionRecording(req, res) {
     try {
-      const { CallSid, RecordingUrl, RecordingDuration } = req.body;
+      const { CallSid, RecordingUrl } = req.body;
       
       logger.info(`Processing interruption recording for call: ${CallSid}`);
       
-      // Process the interruption recording with same logic as main recording
-      let transcription, aiResponse, session;
-      
-      try {
-        session = await callSessionService.getCallSessionBySid(CallSid);
-        logger.info(`Found session for interruption: ${session?.id || 'none'}`);
-      } catch (dbError) {
-        logger.warn(`Database error getting session: ${dbError.message}`);
-      }
-
-      try {
-        logger.info('Starting Whisper transcription for interruption...');
-        transcription = await whisperService.transcribeAudio(RecordingUrl);
-        logger.info(`Interruption transcription: "${transcription.text}" (confidence: ${transcription.confidence})`);
-      } catch (whisperError) {
-        logger.error(`Whisper error: ${whisperError.message}`);
-        transcription = { 
-          text: "I understand. Is there anything else I can help you with?", 
-          confidence: 0,
-          error: true
-        };
-      }
-
-      if (!transcription.error && transcription.confidence > 0) {
-        try {
-          logger.info('Generating AI response for interruption...');
-          aiResponse = await aiService.generateSupportResponse(transcription.text);
-          logger.info(`AI response generated for interruption (confidence: ${aiResponse.confidence})`);
-        } catch (aiError) {
-          logger.error(`AI service error: ${aiError.message}`);
-          aiResponse = {
-            aiResponse: "I understand. Is there anything else I can help you with?",
-            confidence: 'high'
-          };
-        }
-      } else {
-        aiResponse = {
-          aiResponse: "I understand. Is there anything else I can help you with?",
-          confidence: 'high'
-        };
-      }
-
-      // Save to database if possible
-      if (session && transcription.text) {
-        try {
-          await callSessionService.addTranscript(session.id, 'user', transcription.text, transcription.confidence);
-          await callSessionService.addTranscript(session.id, 'ai', aiResponse.aiResponse);
-          logger.info('Saved interruption transcripts to database');
-        } catch (dbError) {
-          logger.warn(`Database save error: ${dbError.message}`);
-        }
-      }
-      
-      // Generate response - no escalation for interruptions
-      const twimlResponse = twilioService.createResponseWithAnswer(aiResponse.aiResponse, false);
-      res.type('text/xml');
-      res.send(twimlResponse);
+      // Process the interruption the same way as a regular recording
+      await this.handleRecording(req, res);
       
     } catch (error) {
       logger.error('Error handling interruption recording:', error);
