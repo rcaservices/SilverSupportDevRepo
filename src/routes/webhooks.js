@@ -11,3 +11,9 @@ router.post('/twilio/follow-up-complete', (req, res) => res.status(200).send('OK
 router.post('/twilio/status', webhookController.handleCallStatus);
 
 module.exports = router;
+
+// Interruption handling endpoints
+router.post('/twilio/handle-interruption', webhookController.handleInterruption);
+router.post('/twilio/handle-interruption-recording', webhookController.handleInterruptionRecording);
+router.post('/twilio/partial-speech', webhookController.handlePartialSpeech);
+router.post('/twilio/interruption-complete', (req, res) => res.status(200).send('OK'));
