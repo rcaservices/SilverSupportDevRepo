@@ -55,7 +55,6 @@ app.use('/webhooks', webhookRoutes);
 app.use('/api/knowledge', knowledgeRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/agents', agentRoutes);
-app.use('/api/ai', aiRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
