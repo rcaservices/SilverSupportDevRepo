@@ -9,15 +9,45 @@ class AIService {
     });
   }
 
+  // Extract key terms from user query for better search
+  extractSearchTerms(query) {
+    const commonWords = ['how', 'do', 'can', 'what', 'where', 'when', 'why', 'is', 'are', 'the', 'a', 'an', 'to', 'i', 'my', 'me'];
+    const words = query.toLowerCase()
+      .replace(/[^\w\s]/g, ' ')
+      .split(/\s+/)
+      .filter(word => word.length > 2 && !commonWords.includes(word));
+    
+    return words.slice(0, 3); // Take top 3 meaningful words
+  }
+
   async generateSupportResponse(userQuery) {
     try {
-      // First, search the knowledge base
-      const kbResults = await knowledgeBaseService.searchFAQs(userQuery, 3);
+      // Extract search terms and try multiple searches
+      const searchTerms = this.extractSearchTerms(userQuery);
+      logger.info(`Extracted search terms: ${searchTerms.join(', ')}`);
+      
+      let kbResults = [];
+      
+      // Try searching with each extracted term
+      for (const term of searchTerms) {
+        const results = await knowledgeBaseService.searchFAQs(term, 2);
+        kbResults = kbResults.concat(results);
+      }
+      
+      // Remove duplicates based on ID
+      kbResults = kbResults.filter((result, index, self) => 
+        index === self.findIndex(r => r.id === result.id)
+      );
+      
+      // Sort by relevance score and take top 3
+      kbResults = kbResults.sort((a, b) => b.relevanceScore - a.relevanceScore).slice(0, 3);
+      
+      logger.info(`Knowledge base returned ${kbResults.length} unique results`);
       
       // Create context from knowledge base results
-      const context = kbResults.map(result => 
-        `FAQ: ${result.title}\nContent: ${result.content}\nSteps: ${result.solutionSteps.join(', ')}`
-      ).join('\n\n');
+      const context = kbResults.length > 0 ? kbResults.map(result => 
+        `FAQ: ${result.title}\nContent: ${result.content}\nSolution Steps: ${result.solutionSteps ? result.solutionSteps.join(' → ') : 'No specific steps'}`
+      ).join('\n\n---\n\n') : 'No relevant FAQ information found in knowledge base.';
 
       // Generate AI response using Claude
       const prompt = `You are a helpful technical support agent. A customer is asking: "${userQuery}"
@@ -26,13 +56,13 @@ Based on the following knowledge base information:
 ${context}
 
 Please provide a helpful, friendly response that:
-1. Directly addresses their question
-2. Uses the relevant information from the knowledge base
-3. Provides clear, step-by-step instructions if applicable
-4. Maintains a professional but friendly tone
-5. If no relevant information is found, politely explain and offer to escalate
+1. Directly answers their question using the knowledge base information when available
+2. Provides the step-by-step instructions from the solution steps
+3. Maintains a professional but friendly tone
+4. If multiple FAQs are relevant, mention the most appropriate one
+5. Keep responses under 200 words
 
-Keep the response conversational and under 200 words.`;
+Response:`;
 
       const response = await this.anthropic.messages.create({
         model: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
@@ -47,6 +77,7 @@ Keep the response conversational and under 200 words.`;
         userQuery,
         aiResponse: response.content[0].text,
         knowledgeBaseResults: kbResults,
+        searchTermsUsed: searchTerms,
         confidence: kbResults.length > 0 ? 'high' : 'low',
         source: 'claude_with_kb'
       };
@@ -81,7 +112,6 @@ Return only JSON in this format:
       return JSON.parse(response.content[0].text);
     } catch (error) {
       logger.error('Sentiment analysis failed:', error);
-      // Return default neutral sentiment if analysis fails
       return {
         sentiment: 'neutral',
         score: 0.0,
