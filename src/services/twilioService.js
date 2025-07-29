@@ -16,12 +16,13 @@ class TwilioService {
       language: 'en-US'
     }, 'Hello! Welcome to AI Technical Support. Please describe your technical issue, and I will help you resolve it.');
     
-    // Record the caller's response
+    // Record the caller's response with both Whisper and Twilio transcription as backup
     response.record({
       maxLength: 30,
       playBeep: false,
       recordingStatusCallback: '/webhooks/twilio/recording-complete',
-      transcribe: false, // We'll use Whisper instead
+      transcribe: true, // Enable Twilio transcription as backup
+      transcribeCallback: '/webhooks/twilio/transcription-complete',
       action: '/webhooks/twilio/handle-recording'
     });
     
@@ -38,7 +39,6 @@ class TwilioService {
         language: 'en-US'
       }, 'I understand this is a complex issue. Let me connect you with one of our technical specialists who can provide more detailed assistance.');
       
-      // In a real implementation, this would connect to a human
       response.say({
         voice: 'alice',
         language: 'en-US'
@@ -84,34 +84,6 @@ class TwilioService {
     response.hangup();
     
     return response.toString();
-  }
-
-  // Send SMS notification (for escalations)
-  async sendSMSNotification(phoneNumber, message) {
-    try {
-      const sms = await this.client.messages.create({
-        body: message,
-        from: process.env.TWILIO_PHONE_NUMBER,
-        to: phoneNumber
-      });
-      
-      logger.info(`SMS sent successfully: ${sms.sid}`);
-      return sms;
-    } catch (error) {
-      logger.error('Failed to send SMS:', error);
-      throw error;
-    }
-  }
-
-  // Get call details
-  async getCallDetails(callSid) {
-    try {
-      const call = await this.client.calls(callSid).fetch();
-      return call;
-    } catch (error) {
-      logger.error(`Failed to get call details: ${error.message}`);
-      throw error;
-    }
   }
 }
 
