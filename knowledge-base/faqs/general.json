@@ -5,15 +5,17 @@
       "category": "general",
       "subcategory": "account",
       "title": "How to reset my password",
-      "keywords": ["password", "reset", "forgot", "login"],
+      "keywords": ["password", "reset", "forgot", "login", "access", "account"],
       "content": "To reset your password, go to the login page and click 'Forgot Password'. Enter your email address and follow the instructions sent to your email.",
       "solution_steps": [
         "Go to the login page",
-        "Click 'Forgot Password'",
+        "Click 'Forgot Password' link",
         "Enter your registered email address",
         "Check your email for reset instructions",
-        "Follow the link in the email",
-        "Create a new password"
+        "Follow the secure link in the email",
+        "Create a new strong password",
+        "Confirm your new password",
+        "Log in with your new credentials"
       ]
     },
     {
@@ -21,13 +23,66 @@
       "category": "general",
       "subcategory": "billing",
       "title": "How to view my billing history",
-      "keywords": ["billing", "invoice", "payment", "history", "charges"],
+      "keywords": ["billing", "invoice", "payment", "history", "charges", "receipt", "statement"],
       "content": "You can view your billing history by logging into your account and navigating to the Billing section.",
       "solution_steps": [
-        "Log into your account",
+        "Log into your account dashboard",
         "Navigate to Account Settings",
-        "Click on 'Billing' tab",
-        "View your payment history and invoices"
+        "Click on 'Billing & Payments' tab",
+        "View your payment history and invoices",
+        "Download receipts if needed",
+        "Set up payment notifications if desired"
+      ]
+    },
+    {
+      "id": 3,
+      "category": "general",
+      "subcategory": "account",
+      "title": "How to update my profile information",
+      "keywords": ["profile", "update", "personal information", "contact", "details", "change"],
+      "content": "Update your profile information including name, email, phone number, and address in your account settings.",
+      "solution_steps": [
+        "Log into your account",
+        "Go to Profile Settings",
+        "Click 'Edit Profile'",
+        "Update your information",
+        "Verify your email if changed",
+        "Save your changes",
+        "Confirm updates via email notification"
+      ]
+    },
+    {
+      "id": 4,
+      "category": "general",
+      "subcategory": "security",
+      "title": "How to enable two-factor authentication",
+      "keywords": ["2fa", "two factor", "security", "authentication", "protect", "secure"],
+      "content": "Enable two-factor authentication to add an extra layer of security to your account.",
+      "solution_steps": [
+        "Go to Security Settings in your account",
+        "Click 'Enable Two-Factor Authentication'",
+        "Choose your preferred method (SMS or authenticator app)",
+        "Follow the setup instructions",
+        "Enter the verification code",
+        "Save your backup codes",
+        "Test the login process"
+      ]
+    },
+    {
+      "id": 5,
+      "category": "general",
+      "subcategory": "support",
+      "title": "How to contact customer support",
+      "keywords": ["support", "help", "contact", "assistance", "customer service", "phone", "email"],
+      "content": "Contact our customer support team through multiple channels for assistance with your account or services.",
+      "solution_steps": [
+        "Call our support line at 1-800-SUPPORT",
+        "Or email us at support@company.com",
+        "Or use the live chat on our website",
+        "Or submit a support ticket through your account",
+        "Provide your account number for faster service",
+        "Describe your issue clearly",
+        "Follow up if needed"
       ]
     }
   ]

@@ -1,0 +1,58 @@
+{
+  "faqs": [
+    {
+      "id": 11,
+      "category": "billing",
+      "subcategory": "payments",
+      "title": "How to update payment method",
+      "keywords": ["payment", "credit card", "update", "billing", "method", "change"],
+      "content": "Update your payment method to ensure uninterrupted service and avoid payment failures.",
+      "solution_steps": [
+        "Log into your account dashboard",
+        "Go to Billing & Payment Settings",
+        "Click 'Payment Methods'",
+        "Add new payment method or update existing",
+        "Enter card details securely",
+        "Set as default payment method if desired",
+        "Remove old payment methods if needed",
+        "Verify the update with a test transaction"
+      ]
+    },
+    {
+      "id": 12,
+      "category": "billing",
+      "subcategory": "charges",
+      "title": "Understanding charges on my bill",
+      "keywords": ["charges", "bill", "fees", "explanation", "breakdown", "cost"],
+      "content": "Get a detailed explanation of all charges and fees that appear on your monthly bill.",
+      "solution_steps": [
+        "Review your detailed billing statement",
+        "Check the service period for each charge",
+        "Identify base service fees vs usage charges",
+        "Look for any one-time setup or equipment fees",
+        "Check for promotional discounts applied",
+        "Review any taxes and regulatory fees",
+        "Contact billing support for clarification",
+        "Keep records of all billing communications"
+      ]
+    },
+    {
+      "id": 13,
+      "category": "billing",
+      "subcategory": "disputes",
+      "title": "How to dispute a charge",
+      "keywords": ["dispute", "charge", "billing error", "refund", "incorrect", "contest"],
+      "content": "If you believe there's an error on your bill, follow these steps to dispute the charge.",
+      "solution_steps": [
+        "Review your bill carefully and identify the disputed charge",
+        "Gather supporting documentation",
+        "Contact customer service within 60 days",
+        "Explain the dispute clearly with specifics",
+        "Provide any relevant account information",
+        "Follow up in writing if requested",
+        "Keep records of all dispute communications",
+        "Allow 2-3 billing cycles for resolution"
+      ]
+    }
+  ]
+}

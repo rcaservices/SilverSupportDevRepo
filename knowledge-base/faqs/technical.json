@@ -1,35 +1,97 @@
 {
   "faqs": [
     {
-      "id": 3,
+      "id": 6,
       "category": "technical",
       "subcategory": "connectivity",
       "title": "Internet connection troubleshooting",
-      "keywords": ["internet", "connection", "slow", "not working", "wifi"],
-      "content": "If you're experiencing internet connectivity issues, try these troubleshooting steps.",
+      "keywords": ["internet", "connection", "slow", "not working", "wifi", "network", "outage"],
+      "content": "If you're experiencing internet connectivity issues, try these troubleshooting steps to resolve common problems.",
       "solution_steps": [
         "Check if other devices can connect to the internet",
-        "Restart your modem and router",
-        "Wait 30 seconds between restarts",
-        "Check all cable connections",
-        "Run a speed test",
-        "Contact support if issues persist"
+        "Restart your modem by unplugging for 30 seconds",
+        "Restart your router by unplugging for 30 seconds",
+        "Check all cable connections are secure",
+        "Run a speed test from speedtest.net",
+        "Try connecting via ethernet cable",
+        "Contact your ISP if issues persist",
+        "Check for local outages in your area"
       ]
     },
     {
-      "id": 4,
+      "id": 7,
       "category": "technical",
       "subcategory": "software",
       "title": "Software installation issues",
-      "keywords": ["software", "install", "error", "failed", "download"],
-      "content": "If you're having trouble installing software, follow these steps to resolve common issues.",
+      "keywords": ["software", "install", "error", "failed", "download", "setup", "program"],
+      "content": "If you're having trouble installing software, follow these steps to resolve common installation issues.",
       "solution_steps": [
-        "Check system requirements",
+        "Check minimum system requirements",
         "Ensure you have administrator privileges",
         "Temporarily disable antivirus software",
-        "Clear temporary files",
-        "Download the software again",
-        "Try installing in safe mode"
+        "Clear temporary files and cache",
+        "Download the software again from official source",
+        "Run the installer as administrator",
+        "Try installing in compatibility mode",
+        "Restart your computer and try again",
+        "Contact software vendor if issues persist"
+      ]
+    },
+    {
+      "id": 8,
+      "category": "technical",
+      "subcategory": "performance",
+      "title": "Computer running slowly",
+      "keywords": ["slow", "performance", "lag", "freeze", "computer", "speed", "optimization"],
+      "content": "If your computer is running slowly, these steps can help improve performance and speed.",
+      "solution_steps": [
+        "Check available storage space (need at least 15% free)",
+        "Run disk cleanup to remove temporary files",
+        "Uninstall unused programs and applications",
+        "Disable startup programs you don't need",
+        "Run a full system antivirus scan",
+        "Update your operating system",
+        "Check for driver updates",
+        "Consider adding more RAM if consistently slow",
+        "Restart your computer regularly"
+      ]
+    },
+    {
+      "id": 9,
+      "category": "technical",
+      "subcategory": "email",
+      "title": "Email not working or not receiving emails",
+      "keywords": ["email", "not working", "receiving", "sending", "mail", "inbox", "spam"],
+      "content": "Troubleshoot email issues including problems with sending, receiving, or accessing your email account.",
+      "solution_steps": [
+        "Check your internet connection",
+        "Verify email server settings are correct",
+        "Check your spam/junk folder",
+        "Clear your email app cache",
+        "Try accessing email via web browser",
+        "Check if email account is over storage limit",
+        "Verify your email password is correct",
+        "Contact your email provider if issues persist",
+        "Check for email service outages"
+      ]
+    },
+    {
+      "id": 10,
+      "category": "technical",
+      "subcategory": "devices",
+      "title": "Device won't turn on or start up",
+      "keywords": ["won't turn on", "power", "startup", "boot", "device", "not starting"],
+      "content": "If your device won't turn on or start up properly, try these troubleshooting steps.",
+      "solution_steps": [
+        "Check that power cable is securely connected",
+        "Try a different power outlet",
+        "For laptops, ensure battery has charge",
+        "Press and hold power button for 10 seconds",
+        "Remove and reinsert battery if removable",
+        "Check for any visible damage to power components",
+        "Try starting in safe mode",
+        "If still not working, contact technical support",
+        "May need professional repair service"
       ]
     }
   ]
