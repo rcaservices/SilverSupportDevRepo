@@ -3,6 +3,7 @@ const whisperService = require('../services/whisperService');
 const aiService = require('../services/aiService');
 const callSessionService = require('../services/callSessionService');
 const logger = require('../utils/logger');
+const twilio = require('twilio');
 
 class WebhookController {
   
@@ -13,8 +14,13 @@ class WebhookController {
       
       logger.info(`Incoming call: ${CallSid} from ${phoneNumber}`);
       
-      // Create call session in database
-      const session = await callSessionService.createCallSession(CallSid, phoneNumber);
+      // Create call session in database (with error handling)
+      try {
+        const session = await callSessionService.createCallSession(CallSid, phoneNumber);
+        logger.info(`Created session: ${session.id}`);
+      } catch (dbError) {
+        logger.warn(`Database error (continuing anyway): ${dbError.message}`);
+      }
       
       // Generate TwiML response
       const twimlResponse = twilioService.createIncomingCallResponse();
@@ -24,7 +30,14 @@ class WebhookController {
       
     } catch (error) {
       logger.error('Error handling incoming call:', error);
-      res.status(500).send('Internal server error');
+      
+      // Fallback response
+      const response = new twilio.twiml.VoiceResponse();
+      response.say({ voice: 'alice' }, 'Welcome to technical support. Please hold while we connect you.');
+      response.hangup();
+      
+      res.type('text/xml');
+      res.send(response.toString());
     }
   }
 
@@ -34,74 +47,85 @@ class WebhookController {
       const { CallSid, RecordingUrl, RecordingDuration } = req.body;
       
       logger.info(`Processing recording for call: ${CallSid}`);
+      logger.info(`Recording URL: ${RecordingUrl}`);
+      logger.info(`Recording Duration: ${RecordingDuration} seconds`);
       
-      // Get call session
-      const session = await callSessionService.getCallSessionBySid(CallSid);
-      if (!session) {
-        throw new Error(`Call session not found: ${CallSid}`);
+      let transcription, aiResponse, session;
+      
+      try {
+        // Get call session
+        session = await callSessionService.getCallSessionBySid(CallSid);
+        logger.info(`Found session: ${session?.id || 'none'}`);
+      } catch (dbError) {
+        logger.warn(`Database error getting session: ${dbError.message}`);
       }
 
-      // Transcribe audio with Whisper
-      const transcription = await whisperService.transcribeAudio(RecordingUrl);
-      
-      // Save user transcript
-      const userTranscript = await callSessionService.addTranscript(
-        session.id, 
-        'user', 
-        transcription.text, 
-        transcription.confidence
-      );
-      
-      // Analyze sentiment
-      const sentiment = await aiService.analyzeSentiment(transcription.text);
-      
-      // Save sentiment analysis
-      await callSessionService.addSentimentAnalysis(
-        session.id,
-        userTranscript.id,
-        sentiment.score,
-        sentiment.emotion,
-        sentiment.urgency,
-        sentiment.escalation_recommended
-      );
-      
-      // Generate AI response
-      const aiResponse = await aiService.generateSupportResponse(transcription.text);
-      
-      // Save AI response
-      const responseRecord = await callSessionService.addAIResponse(
-        session.id,
-        'information',
-        aiResponse.aiResponse,
-        aiResponse.knowledgeBaseResults[0]?.id || null,
-        aiResponse.confidence === 'high'
-      );
-      
-      // Save AI transcript
-      await callSessionService.addTranscript(session.id, 'ai', aiResponse.aiResponse);
+      try {
+        // Transcribe audio with Whisper
+        logger.info('Starting Whisper transcription...');
+        transcription = await whisperService.transcribeAudio(RecordingUrl);
+        logger.info(`Transcription result: "${transcription.text}" (confidence: ${transcription.confidence})`);
+        
+      } catch (whisperError) {
+        logger.error(`Whisper error: ${whisperError.message}`);
+        transcription = { 
+          text: "I'm having trouble understanding the audio. Let me provide some general help.", 
+          confidence: 0,
+          error: true
+        };
+      }
+
+      // Skip AI processing if transcription failed completely
+      if (transcription.error && transcription.confidence === 0) {
+        logger.info('Skipping AI processing due to transcription failure');
+        aiResponse = {
+          aiResponse: "I apologize, but I'm having trouble understanding your question due to audio quality issues. Could you please try calling back and speaking more clearly? Alternatively, you can contact our support team via email for assistance.",
+          confidence: 'low'
+        };
+      } else {
+        try {
+          // Generate AI response
+          logger.info('Generating AI response...');
+          aiResponse = await aiService.generateSupportResponse(transcription.text);
+          logger.info(`AI response generated successfully (confidence: ${aiResponse.confidence})`);
+          
+        } catch (aiError) {
+          logger.error(`AI service error: ${aiError.message}`);
+          aiResponse = {
+            aiResponse: "I apologize, but I'm experiencing technical difficulties with my AI systems. Please try calling back in a few minutes, or contact our support team directly for immediate assistance.",
+            confidence: 'low'
+          };
+        }
+      }
+
+      // Save to database if possible
+      if (session) {
+        try {
+          await callSessionService.addTranscript(session.id, 'user', transcription.text, transcription.confidence);
+          await callSessionService.addTranscript(session.id, 'ai', aiResponse.aiResponse);
+          logger.info('Saved transcripts to database');
+        } catch (dbError) {
+          logger.warn(`Database save error: ${dbError.message}`);
+        }
+      }
       
       // Determine if escalation is needed
-      const shouldEscalate = sentiment.escalation_recommended || 
-                            aiResponse.confidence === 'low' || 
-                            sentiment.urgency >= 4;
+      const shouldEscalate = aiResponse.confidence === 'low' || transcription.confidence < 0.5;
       
       // Generate TwiML response
-      const twimlResponse = twilioService.createResponseWithAnswer(
-        aiResponse.aiResponse, 
-        shouldEscalate
-      );
+      const twimlResponse = twilioService.createResponseWithAnswer(aiResponse.aiResponse, shouldEscalate);
       
       res.type('text/xml');
       res.send(twimlResponse);
       
     } catch (error) {
-      logger.error('Error handling recording:', error);
+      logger.error('Critical error in handleRecording:', error);
       
-      // Fallback response
-      const response = new require('twilio').twiml.VoiceResponse();
+      // Emergency fallback response
+      const response = new twilio.twiml.VoiceResponse();
       response.say({
         voice: 'alice'
-      }, 'I apologize, but I encountered a technical issue. Please try calling back in a few minutes, or contact our support team directly.');
+      }, 'I apologize for the technical difficulty. Our support team will call you back shortly. Thank you for your patience.');
       response.hangup();
       
       res.type('text/xml');
@@ -116,45 +140,20 @@ class WebhookController {
       
       logger.info(`Processing follow-up for call: ${CallSid}`);
       
-      // Get call session
-      const session = await callSessionService.getCallSessionBySid(CallSid);
-      
-      if (RecordingUrl && session) {
-        // Transcribe follow-up
-        const transcription = await whisperService.transcribeAudio(RecordingUrl);
-        
-        // Save follow-up transcript
-        await callSessionService.addTranscript(session.id, 'user', transcription.text);
-        
-        // Check if they need more help
-        const needsMoreHelp = transcription.text.toLowerCase().includes('yes') ||
-                             transcription.text.toLowerCase().includes('help') ||
-                             transcription.text.toLowerCase().includes('more');
-        
-        if (needsMoreHelp) {
-          // Generate another AI response
-          const aiResponse = await aiService.generateSupportResponse(transcription.text);
-          
-          await callSessionService.addTranscript(session.id, 'ai', aiResponse.aiResponse);
-          
-          const twimlResponse = twilioService.createResponseWithAnswer(aiResponse.aiResponse);
-          res.type('text/xml');
-          res.send(twimlResponse);
-          return;
-        }
-      }
-      
-      // End the call
+      // For now, just end the call gracefully
       const twimlResponse = twilioService.createGoodbyeResponse();
       res.type('text/xml');
       res.send(twimlResponse);
       
     } catch (error) {
-      logger.error('Error handling follow-up:', error);
+      logger.error('Error in handleFollowUp:', error);
       
-      const twimlResponse = twilioService.createGoodbyeResponse();
+      const response = new twilio.twiml.VoiceResponse();
+      response.say({ voice: 'alice' }, 'Thank you for calling. Goodbye!');
+      response.hangup();
+      
       res.type('text/xml');
-      res.send(twimlResponse);
+      res.send(response.toString());
     }
   }
 
@@ -162,13 +161,17 @@ class WebhookController {
   async handleCallStatus(req, res) {
     try {
       const { CallSid, CallStatus, CallDuration } = req.body;
-      
       logger.info(`Call status update: ${CallSid} - ${CallStatus}`);
       
-      if (CallStatus === 'completed') {
-        const session = await callSessionService.getCallSessionBySid(CallSid);
-        if (session) {
-          await callSessionService.endCallSession(session.id, parseInt(CallDuration));
+      if (CallStatus === 'completed' && CallDuration) {
+        try {
+          const session = await callSessionService.getCallSessionBySid(CallSid);
+          if (session) {
+            await callSessionService.endCallSession(session.id, parseInt(CallDuration));
+            logger.info(`Ended call session ${session.id} after ${CallDuration} seconds`);
+          }
+        } catch (dbError) {
+          logger.warn(`Error ending call session: ${dbError.message}`);
         }
       }
       
@@ -176,7 +179,7 @@ class WebhookController {
       
     } catch (error) {
       logger.error('Error handling call status:', error);
-      res.status(500).send('Error');
+      res.status(200).send('OK');
     }
   }
 }
