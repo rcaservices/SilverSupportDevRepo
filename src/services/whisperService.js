@@ -12,13 +12,42 @@ class WhisperService {
     });
   }
 
-  // Download audio file from Twilio with authentication
-  async downloadAudio(url, filename) {
+  // Wait for a specified number of milliseconds
+  async sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  // Download audio file from Twilio with authentication and retry logic
+  async downloadAudio(url, filename, maxRetries = 3) {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        logger.info(`Download attempt ${attempt}/${maxRetries} for: ${url}`);
+        
+        if (attempt > 1) {
+          // Wait longer between retries
+          const waitTime = attempt * 2000; // 2s, 4s, 6s
+          logger.info(`Waiting ${waitTime}ms before retry...`);
+          await this.sleep(waitTime);
+        }
+        
+        const success = await this.attemptDownload(url, filename);
+        if (success) {
+          return;
+        }
+      } catch (error) {
+        logger.warn(`Download attempt ${attempt} failed: ${error.message}`);
+        if (attempt === maxRetries) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  // Single download attempt
+  async attemptDownload(url, filename) {
     return new Promise((resolve, reject) => {
       const file = fs.createWriteStream(filename);
       const protocol = url.startsWith('https:') ? https : http;
-      
-      logger.info(`Downloading audio from: ${url}`);
       
       // Create basic auth header for Twilio
       const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
@@ -31,7 +60,16 @@ class WhisperService {
       };
       
       const request = protocol.get(url, options, (response) => {
+        if (response.statusCode === 404) {
+          file.close();
+          fs.unlink(filename, () => {});
+          reject(new Error(`Recording not yet available (HTTP 404) - will retry`));
+          return;
+        }
+        
         if (response.statusCode !== 200) {
+          file.close();
+          fs.unlink(filename, () => {});
           reject(new Error(`Failed to download audio: HTTP ${response.statusCode} - ${response.statusMessage}`));
           return;
         }
@@ -42,22 +80,24 @@ class WhisperService {
         file.on('finish', () => {
           file.close();
           logger.info(`Audio downloaded successfully: ${filename}`);
-          resolve();
+          resolve(true);
         });
         
         file.on('error', (err) => {
-          fs.unlink(filename, () => {}); // Delete partial file
+          fs.unlink(filename, () => {});
           reject(err);
         });
       });
       
       request.on('error', (err) => {
-        fs.unlink(filename, () => {}); // Delete partial file
+        file.close();
+        fs.unlink(filename, () => {});
         reject(err);
       });
       
-      request.setTimeout(30000, () => {
+      request.setTimeout(15000, () => {
         request.destroy();
+        file.close();
         fs.unlink(filename, () => {});
         reject(new Error('Download timeout'));
       });
@@ -69,6 +109,10 @@ class WhisperService {
     try {
       logger.info(`Starting transcription for audio: ${audioUrl}`);
       
+      // Wait a bit for Twilio to finish processing the recording
+      logger.info('Waiting 3 seconds for Twilio to process recording...');
+      await this.sleep(3000);
+      
       // Create temp directory if it doesn't exist
       const tempDir = path.join(process.cwd(), 'temp');
       if (!fs.existsSync(tempDir)) {
@@ -79,7 +123,7 @@ class WhisperService {
       // Twilio recordings are usually in MP3 format
       const tempFilename = path.join(tempDir, `audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`);
       
-      // Download audio file with authentication
+      // Download audio file with authentication and retry logic
       await this.downloadAudio(audioUrl, tempFilename);
       
       // Check if file exists and has content
@@ -118,9 +162,9 @@ class WhisperService {
     } catch (error) {
       logger.error('Whisper transcription failed:', error);
       
-      // If it's an auth error, provide specific feedback
-      if (error.message.includes('401')) {
-        logger.error('Twilio authentication failed - check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN');
+      // If it's a 404 error, provide specific feedback
+      if (error.message.includes('404')) {
+        logger.error('Recording not found - may be a timing issue with Twilio recording processing');
       }
       
       // Return a fallback response
