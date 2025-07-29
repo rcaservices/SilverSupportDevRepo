@@ -12,7 +12,7 @@ class WhisperService {
     });
   }
 
-  // Download audio file from URL with better error handling
+  // Download audio file from Twilio with authentication
   async downloadAudio(url, filename) {
     return new Promise((resolve, reject) => {
       const file = fs.createWriteStream(filename);
@@ -20,12 +20,23 @@ class WhisperService {
       
       logger.info(`Downloading audio from: ${url}`);
       
-      const request = protocol.get(url, (response) => {
+      // Create basic auth header for Twilio
+      const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+      
+      const options = {
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'User-Agent': 'AI-Support-Service/1.0'
+        }
+      };
+      
+      const request = protocol.get(url, options, (response) => {
         if (response.statusCode !== 200) {
-          reject(new Error(`Failed to download audio: HTTP ${response.statusCode}`));
+          reject(new Error(`Failed to download audio: HTTP ${response.statusCode} - ${response.statusMessage}`));
           return;
         }
         
+        logger.info(`Successfully authenticated with Twilio, downloading audio...`);
         response.pipe(file);
         
         file.on('finish', () => {
@@ -65,10 +76,10 @@ class WhisperService {
         logger.info(`Created temp directory: ${tempDir}`);
       }
       
-      // Twilio recordings are usually in WAV format, but let's use .mp3 extension for Whisper
+      // Twilio recordings are usually in MP3 format
       const tempFilename = path.join(tempDir, `audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}.mp3`);
       
-      // Download audio file
+      // Download audio file with authentication
       await this.downloadAudio(audioUrl, tempFilename);
       
       // Check if file exists and has content
@@ -79,14 +90,14 @@ class WhisperService {
       
       logger.info(`Audio file size: ${stats.size} bytes`);
       
-      // Transcribe with Whisper - let Whisper auto-detect the format
+      // Transcribe with Whisper
       const transcription = await this.openai.audio.transcriptions.create({
         file: fs.createReadStream(tempFilename),
         model: 'whisper-1',
         language: language,
         response_format: 'json',
         temperature: 0.2,
-        prompt: "This is a customer calling technical support asking for help." // Context helps accuracy
+        prompt: "This is a customer calling technical support asking for help with billing, internet, or technical issues."
       });
       
       // Clean up temp file
@@ -95,63 +106,26 @@ class WhisperService {
         else logger.info(`Cleaned up temp file: ${tempFilename}`);
       });
       
-      logger.info(`Transcription completed: "${transcription.text}"`);
+      const transcribedText = transcription.text.trim();
+      logger.info(`Transcription completed: "${transcribedText}"`);
       
       return {
-        text: transcription.text.trim(),
+        text: transcribedText,
         language: transcription.language || language,
-        confidence: 0.85
+        confidence: transcribedText.length > 0 ? 0.85 : 0.0
       };
       
     } catch (error) {
       logger.error('Whisper transcription failed:', error);
       
-      // If it's a format issue, try downloading as different extension
-      if (error.message.includes('Invalid file format')) {
-        logger.info('Trying alternative file format...');
-        return await this.transcribeAudioAlternative(audioUrl, language);
+      // If it's an auth error, provide specific feedback
+      if (error.message.includes('401')) {
+        logger.error('Twilio authentication failed - check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN');
       }
       
-      // Return a fallback response instead of throwing
+      // Return a fallback response
       return {
-        text: "I'm sorry, I couldn't understand what you said. Could you please repeat your question more clearly?",
-        language: language,
-        confidence: 0.0,
-        error: true
-      };
-    }
-  }
-
-  // Alternative method with different file extension
-  async transcribeAudioAlternative(audioUrl, language = 'en') {
-    try {
-      const tempDir = path.join(process.cwd(), 'temp');
-      const tempFilename = path.join(tempDir, `audio_alt_${Date.now()}.wav`);
-      
-      await this.downloadAudio(audioUrl, tempFilename);
-      
-      const transcription = await this.openai.audio.transcriptions.create({
-        file: fs.createReadStream(tempFilename),
-        model: 'whisper-1',
-        language: language,
-        response_format: 'json',
-        temperature: 0.2
-      });
-      
-      fs.unlink(tempFilename, () => {});
-      
-      logger.info(`Alternative transcription completed: "${transcription.text}"`);
-      
-      return {
-        text: transcription.text.trim(),
-        language: transcription.language || language,
-        confidence: 0.85
-      };
-      
-    } catch (error) {
-      logger.error('Alternative transcription also failed:', error);
-      return {
-        text: "I apologize, but I'm having trouble with the audio quality. Could you please speak more clearly and try again?",
+        text: "I apologize, but I'm having technical difficulties with the audio processing. Please try speaking more clearly and calling again.",
         language: language,
         confidence: 0.0,
         error: true
