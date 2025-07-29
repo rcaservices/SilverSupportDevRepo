@@ -185,3 +185,70 @@ class WebhookController {
 }
 
 module.exports = new WebhookController();
+
+  // Handle user interruptions during AI responses
+  async handleInterruption(req, res) {
+    try {
+      const { CallSid, SpeechResult, Confidence } = req.body;
+      
+      logger.info(`User interrupted during response: "${SpeechResult}" (confidence: ${Confidence})`);
+      
+      // If the interruption has sufficient confidence, process it
+      if (Confidence && parseFloat(Confidence) > 0.6) {
+        // Generate immediate response to interruption
+        const twimlResponse = twilioService.createInterruptionResponse(SpeechResult);
+        res.type('text/xml');
+        res.send(twimlResponse);
+      } else {
+        // Low confidence interruption, continue with original flow
+        const twimlResponse = twilioService.createGoodbyeResponse();
+        res.type('text/xml');
+        res.send(twimlResponse);
+      }
+      
+    } catch (error) {
+      logger.error('Error handling interruption:', error);
+      
+      const response = new twilio.twiml.VoiceResponse();
+      response.say({ voice: 'Polly.Joanna-Neural' }, 'I\'m sorry, I didn\'t catch that. Could you please repeat your question?');
+      response.redirect('/webhooks/twilio/handle-follow-up');
+      
+      res.type('text/xml');
+      res.send(response.toString());
+    }
+  }
+
+  // Handle recording after interruption
+  async handleInterruptionRecording(req, res) {
+    try {
+      const { CallSid, RecordingUrl } = req.body;
+      
+      logger.info(`Processing interruption recording for call: ${CallSid}`);
+      
+      // Process the interruption the same way as a regular recording
+      await this.handleRecording(req, res);
+      
+    } catch (error) {
+      logger.error('Error handling interruption recording:', error);
+      
+      const twimlResponse = twilioService.createGoodbyeResponse();
+      res.type('text/xml');
+      res.send(twimlResponse);
+    }
+  }
+
+  // Handle partial speech detection (real-time interruption detection)
+  async handlePartialSpeech(req, res) {
+    try {
+      const { CallSid, PartialSpeechResult } = req.body;
+      
+      logger.info(`Partial speech detected: "${PartialSpeechResult}"`);
+      
+      // Just acknowledge - the main interruption will be handled by handleInterruption
+      res.status(200).send('OK');
+      
+    } catch (error) {
+      logger.error('Error handling partial speech:', error);
+      res.status(200).send('OK');
+    }
+  }
