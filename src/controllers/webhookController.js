@@ -73,29 +73,18 @@ class WebhookController {
       
       const response = new twilio.twiml.VoiceResponse();
       
-      switch (authResult.action) {
-        case 'proceed_with_support':
-          this.handleAuthenticatedUser(response, authResult);
-          break;
-          
-        case 'complete_enrollment':
-          this.handleVoiceEnrollment(response, authResult);
-          break;
-          
-        case 'complete_voice_enrollment':
-          this.handleVoiceEnrollment(response, authResult);
-          break;
-          
-        case 'start_signup_flow':
-          this.handleNewUserSignup(response, authResult);
-          break;
-          
-        case 'request_re_enrollment':
-          this.handleReEnrollment(response, authResult);
-          break;
-          
-        default:
-          this.handleFallbackToHuman(response, authResult);
+      if (authResult.action === "proceed_with_support") {
+        this.handleAuthenticatedUser(response, authResult);
+      } else if (authResult.action === "complete_enrollment" || authResult.action === "complete_voice_enrollment") {
+        this.handleVoiceEnrollment(response, authResult);
+      } else if (authResult.action === "start_signup_flow") {
+        this.handleNewUserSignup(response, authResult);
+      } else if (authResult.action === "request_re_enrollment") {
+        this.handleReEnrollment(response, authResult);
+      } else {
+        this.handleFallbackToHuman(response, authResult);
+      }
+          this.handleFallbackToHuman.bind(this)(response, authResult);
       }
       
       res.type('text/xml');
