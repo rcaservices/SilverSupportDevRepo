@@ -1,0 +1,12 @@
+{
+  "seniorName": "Test Betty Williams",
+  "seniorPhone": "+15551234599",
+  "familyName": "Sarah Williams", 
+  "familyEmail": "sarah.williams@example.com",
+  "familyPhone": "+15551234600",
+  "relationship": "daughter",
+  "selectedTier": "basic",
+  "addressStreet": "456 Elder Street",
+  "addressCity": "Portland",
+  "addressState": "OR"
+}

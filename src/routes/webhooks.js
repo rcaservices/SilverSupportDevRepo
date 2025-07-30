@@ -1,29 +1,29 @@
 const express = require('express');
-const router = express.Router();
 const webhookController = require('../controllers/webhookController');
-// Also add the Twilio auth middleware at the top:
 const validateTwilioSignature = require('../middleware/twilioAuth');
+
+const router = express.Router();
+
+// Apply Twilio signature validation to all webhook routes
 router.use('/twilio/*', validateTwilioSignature);
 
-// Basic Twilio webhook endpoints
+// Main call flow routes
 router.post('/twilio/incoming', webhookController.handleIncomingCall);
-router.post('/twilio/handle-recording', webhookController.handleRecording);
-router.post('/twilio/handle-follow-up', webhookController.handleFollowUp);
-router.post('/twilio/recording-complete', (req, res) => res.status(200).send('OK'));
-router.post('/twilio/follow-up-complete', (req, res) => res.status(200).send('OK'));
-router.post('/twilio/status', webhookController.handleCallStatus);
-
-// Interruption handling endpoints
-router.post('/twilio/handle-interruption', webhookController.handleInterruption);
-router.post('/twilio/handle-interruption-recording', webhookController.handleInterruptionRecording);
-router.post('/twilio/partial-speech', webhookController.handlePartialSpeech);
-router.post('/twilio/interruption-complete', (req, res) => res.status(200).send('OK'));
-router.post('/twilio/transcription-complete', (req, res) => res.status(200).send('OK'));
-
-// Add these new routes to your existing webhooks.js
 router.post('/twilio/voice-auth', webhookController.handleVoiceAuth);
 router.post('/twilio/support-request', webhookController.handleSupportRequest);
+
+// Enrollment flow routes
 router.post('/twilio/complete-enrollment', webhookController.handleCompleteEnrollment);
+router.post('/twilio/re-enrollment', webhookController.handleCompleteEnrollment);
+
+// Signup flow routes
 router.post('/twilio/signup-response', webhookController.handleSignupResponse);
+
+// Follow-up and status routes
+router.post('/twilio/follow-up', webhookController.handleFollowUp);
+router.post('/twilio/status', webhookController.handleCallStatus);
+
+// Legacy route for backward compatibility
+router.post('/twilio/handle-recording', webhookController.handleRecording);
 
 module.exports = router;
