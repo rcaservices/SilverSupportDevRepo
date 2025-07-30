@@ -1,162 +1,506 @@
+// File: src/controllers/webhookController.js (Fixed Version)
 const twilioService = require('../services/twilioService');
 const whisperService = require('../services/whisperService');
 const aiService = require('../services/aiService');
 const callSessionService = require('../services/callSessionService');
+const voiceAuthService = require('../services/voiceAuthService');
 const logger = require('../utils/logger');
 const twilio = require('twilio');
 
 class WebhookController {
   
-  // Handle incoming calls
+  // Handle incoming calls with voice authentication
   async handleIncomingCall(req, res) {
     try {
       const { CallSid, From: phoneNumber, To: twilioNumber } = req.body;
       
       logger.info(`Incoming call: ${CallSid} from ${phoneNumber}`);
       
-      // Create call session in database (with error handling)
-      try {
-        const session = await callSessionService.createCallSession(CallSid, phoneNumber);
-        logger.info(`Created session: ${session.id}`);
-      } catch (dbError) {
-        logger.warn(`Database error (continuing anyway): ${dbError.message}`);
-      }
+      // Generate initial TwiML response for voice authentication
+      const response = new twilio.twiml.VoiceResponse();
       
-      // Generate TwiML response
-      const twimlResponse = twilioService.createIncomingCallResponse();
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, 'Hello! Welcome to technical support. Please tell me your name and how I can help you today.');
+      
+      response.record({
+        action: '/webhooks/twilio/voice-auth',
+        method: 'POST',
+        maxLength: 15,
+        playBeep: false,
+        finishOnKey: '#',
+        timeout: 10
+      });
+      
+      // Fallback if no response
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, 'I didn\'t hear anything. Let me connect you with an agent.');
+      
+      response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
       
       res.type('text/xml');
-      res.send(twimlResponse);
+      res.send(response.toString());
       
     } catch (error) {
       logger.error('Error handling incoming call:', error);
       
-      // Fallback response
       const response = new twilio.twiml.VoiceResponse();
-      response.say({ voice: 'Polly.Joanna-Neural' }, 'Welcome to technical support. Please hold while we connect you.');
-      response.hangup();
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow' 
+      }, 'Welcome to technical support. Let me connect you with an agent.');
+      response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
       
       res.type('text/xml');
       res.send(response.toString());
     }
   }
 
-  // Handle recorded user message
-  async handleRecording(req, res) {
+  // Handle voice authentication
+  async handleVoiceAuth(req, res) {
     try {
-      const { CallSid, RecordingUrl, RecordingDuration } = req.body;
+      const { CallSid, RecordingUrl, From: phoneNumber } = req.body;
       
-      logger.info(`Processing recording for call: ${CallSid}`);
-      logger.info(`Recording URL: ${RecordingUrl}`);
-      logger.info(`Recording Duration: ${RecordingDuration} seconds`);
+      logger.info(`Processing voice auth for call: ${CallSid}`);
       
-      let transcription, aiResponse, session;
-      
-      try {
-        // Get call session
-        session = await callSessionService.getCallSessionBySid(CallSid);
-        logger.info(`Found session: ${session?.id || 'none'}`);
-      } catch (dbError) {
-        logger.warn(`Database error getting session: ${dbError.message}`);
-      }
-
-      try {
-        // Transcribe audio with Whisper
-        logger.info('Starting Whisper transcription...');
-        transcription = await whisperService.transcribeAudio(RecordingUrl);
-        logger.info(`Transcription result: "${transcription.text}" (confidence: ${transcription.confidence})`);
-        
-      } catch (whisperError) {
-        logger.error(`Whisper error: ${whisperError.message}`);
-        transcription = { 
-          text: "I'm having trouble understanding the audio. Let me provide some general help.", 
-          confidence: 0,
-          error: true
-        };
-      }
-
-      // Skip AI processing if transcription failed completely
-      if (transcription.error && transcription.confidence === 0) {
-        logger.info('Skipping AI processing due to transcription failure');
-        aiResponse = {
-          aiResponse: "I apologize, but I'm having trouble understanding your question due to audio quality issues. Could you please try calling back and speaking more clearly?",
-          confidence: 'low'
-        };
-      } else {
-        try {
-          // Generate AI response
-          logger.info('Generating AI response...');
-          aiResponse = await aiService.generateSupportResponse(transcription.text);
-          logger.info(`AI response generated successfully (confidence: ${aiResponse.confidence})`);
-          logger.info(`Knowledge base results found: ${aiResponse.knowledgeBaseResults?.length || 0}`);
-          
-        } catch (aiError) {
-          logger.error(`AI service error: ${aiError.message}`);
-          aiResponse = {
-            aiResponse: "I apologize, but I'm experiencing technical difficulties. Let me try to help you anyway.",
-            confidence: 'low'
-          };
-        }
-      }
-
-      // Save to database if possible
-      if (session) {
-        try {
-          await callSessionService.addTranscript(session.id, 'user', transcription.text, transcription.confidence);
-          await callSessionService.addTranscript(session.id, 'ai', aiResponse.aiResponse);
-          logger.info('Saved transcripts to database');
-        } catch (dbError) {
-          logger.warn(`Database save error: ${dbError.message}`);
-        }
-      }
-      
-      // More lenient escalation criteria
-      const shouldEscalate = (
-        transcription.confidence < 0.3 ||
-        (aiResponse.confidence === 'low' && (!aiResponse.knowledgeBaseResults || aiResponse.knowledgeBaseResults.length === 0))
+      // Process voice authentication
+      const authResult = await voiceAuthService.authenticateOrEnroll(
+        CallSid, RecordingUrl, phoneNumber
       );
       
-      logger.info(`Escalation decision: ${shouldEscalate ? 'ESCALATE' : 'ANSWER DIRECTLY'}`);
-      logger.info(`Reasons: transcription confidence=${transcription.confidence}, AI confidence=${aiResponse.confidence}, KB results=${aiResponse.knowledgeBaseResults?.length || 0}`);
+      const response = new twilio.twiml.VoiceResponse();
       
-      // Generate TwiML response
-      const twimlResponse = twilioService.createResponseWithAnswer(aiResponse.aiResponse, shouldEscalate);
+      switch (authResult.action) {
+        case 'proceed_with_support':
+          this.handleAuthenticatedUser(response, authResult);
+          break;
+          
+        case 'complete_enrollment':
+          this.handleVoiceEnrollment(response, authResult);
+          break;
+          
+        case 'complete_voice_enrollment':
+          this.handleVoiceEnrollment(response, authResult);
+          break;
+          
+        case 'start_signup_flow':
+          this.handleNewUserSignup(response, authResult);
+          break;
+          
+        case 'request_re_enrollment':
+          this.handleReEnrollment(response, authResult);
+          break;
+          
+        default:
+          this.handleFallbackToHuman(response, authResult);
+      }
       
       res.type('text/xml');
-      res.send(twimlResponse);
+      res.send(response.toString());
       
     } catch (error) {
-      logger.error('Critical error in handleRecording:', error);
+      logger.error('Error in voice authentication:', error);
       
-      // Emergency fallback response
       const response = new twilio.twiml.VoiceResponse();
-      response.say({
-        voice: 'Polly.Joanna-Neural'
-      }, 'I apologize for the technical difficulty. Please try calling back in a few minutes.');
-      response.hangup();
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, 'Let me connect you with one of our helpful agents.');
+      response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
       
       res.type('text/xml');
       res.send(response.toString());
     }
   }
 
-  // Handle follow-up recording
+  // Handle authenticated user ready for support
+  handleAuthenticatedUser(response, authResult) {
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: authResult.subscriber?.preferred_voice_speed || 'slow'
+    }, authResult.message);
+    
+    response.record({
+      action: '/webhooks/twilio/support-request',
+      method: 'POST',
+      maxLength: 30,
+      playBeep: false,
+      finishOnKey: '#',
+      timeout: 10
+    });
+    
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, 'I didn\'t hear your question. Let me connect you with an agent.');
+    response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+  }
+
+  // Handle voice enrollment for new or existing users
+  handleVoiceEnrollment(response, authResult) {
+    const enrollmentPhrase = voiceAuthService.generateEnrollmentPhrase(
+      authResult.pendingSignup || authResult.subscriber
+    );
+    
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, `${authResult.message} Please repeat this phrase slowly and clearly: "${enrollmentPhrase}"`);
+    
+    response.record({
+      action: '/webhooks/twilio/complete-enrollment',
+      method: 'POST',
+      maxLength: 15,
+      playBeep: true,
+      timeout: 10
+    });
+    
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, 'Let me connect you with an agent to complete the setup.');
+    response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+  }
+
+  // Handle new user signup flow
+  handleNewUserSignup(response, authResult) {
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, authResult.message);
+    
+    response.record({
+      action: '/webhooks/twilio/signup-response',
+      method: 'POST',
+      maxLength: 10,
+      playBeep: false,
+      timeout: 8
+    });
+    
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, 'Let me connect you with someone who can help you sign up.');
+    response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+  }
+
+  // Handle re-enrollment for existing users with low confidence
+  handleReEnrollment(response, authResult) {
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, authResult.message);
+    
+    const enrollmentPhrase = voiceAuthService.generateEnrollmentPhrase(authResult.subscriber);
+    
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, `Please say this phrase clearly: "${enrollmentPhrase}"`);
+    
+    response.record({
+      action: '/webhooks/twilio/re-enrollment',
+      method: 'POST',
+      maxLength: 15,
+      playBeep: true,
+      timeout: 10
+    });
+  }
+
+  // Handle fallback to human agent
+  handleFallbackToHuman(response, authResult) {
+    response.say({ 
+      voice: 'Polly.Joanna-Neural',
+      rate: 'slow'
+    }, authResult.message || 'Let me connect you with one of our helpful agents.');
+    
+    response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+  }
+
+  // Complete voice enrollment
+  async handleCompleteEnrollment(req, res) {
+    try {
+      const { CallSid, RecordingUrl, From: phoneNumber } = req.body;
+      
+      logger.info(`Completing voice enrollment for call: ${CallSid}`);
+      
+      // Get the call session to retrieve context
+      const callSession = await callSessionService.getCallSessionBySid(CallSid);
+      if (!callSession) {
+        throw new Error('Call session not found');
+      }
+      
+      // Extract voice features from enrollment recording
+      const voiceFeatures = await voiceAuthService.extractVoiceFeatures(RecordingUrl);
+      
+      // Find pending signup or existing subscriber
+      const pendingSignup = await voiceAuthService.findPendingSignup(phoneNumber);
+      const existingSubscriber = await voiceAuthService.findSubscriberByPhone(phoneNumber);
+      
+      let enrollmentResult;
+      
+      if (pendingSignup) {
+        // Complete enrollment for pre-registered user
+        enrollmentResult = await voiceAuthService.completeVoiceEnrollment(
+          callSession.id,
+          { ...pendingSignup, signup_id: pendingSignup.id },
+          voiceFeatures,
+          voiceFeatures.spoken_text
+        );
+      } else if (existingSubscriber) {
+        // Update existing subscriber's voice print
+        enrollmentResult = await voiceAuthService.completeVoiceEnrollment(
+          callSession.id,
+          existingSubscriber,
+          voiceFeatures,
+          voiceFeatures.spoken_text
+        );
+      } else {
+        throw new Error('No pending signup or existing subscriber found');
+      }
+      
+      const response = new twilio.twiml.VoiceResponse();
+      
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, enrollmentResult.message);
+      
+      // Now proceed with support
+      response.record({
+        action: '/webhooks/twilio/support-request',
+        method: 'POST',
+        maxLength: 30,
+        playBeep: false,
+        finishOnKey: '#',
+        timeout: 10
+      });
+      
+      res.type('text/xml');
+      res.send(response.toString());
+      
+    } catch (error) {
+      logger.error('Error completing enrollment:', error);
+      
+      const response = new twilio.twiml.VoiceResponse();
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, 'There was an issue with the enrollment. Let me connect you with an agent.');
+      response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+      
+      res.type('text/xml');
+      res.send(response.toString());
+    }
+  }
+
+  // Handle support requests from authenticated users
+  async handleSupportRequest(req, res) {
+    try {
+      const { CallSid, RecordingUrl, From: phoneNumber } = req.body;
+      
+      logger.info(`Processing support request for call: ${CallSid}`);
+      
+      // Get call session and subscriber info
+      const callSession = await callSessionService.getCallSessionBySid(CallSid);
+      if (!callSession || !callSession.subscriber_id) {
+        throw new Error('Authenticated call session not found');
+      }
+      
+      // Transcribe the support request
+      const transcription = await whisperService.transcribeAudio(RecordingUrl);
+      logger.info(`Support request: "${transcription.text}"`);
+      
+      // Add to transcript
+      await callSessionService.addTranscript(
+        callSession.id,
+        'customer',
+        transcription.text,
+        transcription.confidence
+      );
+      
+      // Generate AI response
+      const aiResponse = await aiService.generateResponse(
+        transcription.text,
+        callSession.id,
+        { subscriberId: callSession.subscriber_id }
+      );
+      
+      // Record AI response
+      await callSessionService.addAIResponse(
+        callSession.id,
+        'support_response',
+        aiResponse.text,
+        aiResponse.knowledgeBaseId,
+        aiResponse.success
+      );
+      
+      const response = new twilio.twiml.VoiceResponse();
+      
+      // Check if escalation is needed
+      if (aiResponse.escalate || aiResponse.sentiment?.escalationRecommended) {
+        response.say({ 
+          voice: 'Polly.Joanna-Neural',
+          rate: 'slow'
+        }, 'Let me connect you with a specialist who can better help you with this issue.');
+        
+        response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+      } else {
+        // Provide AI response
+        response.say({ 
+          voice: 'Polly.Joanna-Neural',
+          rate: callSession.preferred_voice_speed || 'slow'
+        }, aiResponse.text);
+        
+        // Ask if they need more help
+        response.say({ 
+          voice: 'Polly.Joanna-Neural',
+          rate: 'slow'
+        }, 'Does this help, or do you have another question? Say "more help" or "I\'m all set".');
+        
+        response.record({
+          action: '/webhooks/twilio/follow-up',
+          method: 'POST',
+          maxLength: 10,
+          playBeep: false,
+          timeout: 8
+        });
+        
+        // Default to goodbye if no response
+        response.say({ 
+          voice: 'Polly.Joanna-Neural',
+          rate: 'slow'
+        }, 'Thank you for calling! Have a wonderful day.');
+        response.hangup();
+      }
+      
+      res.type('text/xml');
+      res.send(response.toString());
+      
+    } catch (error) {
+      logger.error('Error handling support request:', error);
+      
+      const response = new twilio.twiml.VoiceResponse();
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, 'I\'m having trouble processing your request. Let me connect you with an agent.');
+      response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+      
+      res.type('text/xml');
+      res.send(response.toString());
+    }
+  }
+
+  // Handle signup response (when new caller indicates interest)
+  async handleSignupResponse(req, res) {
+    try {
+      const { CallSid, RecordingUrl, From: phoneNumber } = req.body;
+      
+      // Transcribe their response
+      const transcription = await whisperService.transcribeAudio(RecordingUrl);
+      const responseText = transcription.text.toLowerCase();
+      
+      const response = new twilio.twiml.VoiceResponse();
+      
+      if (responseText.includes('sign') || responseText.includes('yes') || responseText.includes('family')) {
+        // They want to sign up
+        response.say({ 
+          voice: 'Polly.Joanna-Neural',
+          rate: 'slow'
+        }, 'Wonderful! Let me connect you with someone who can help you get started with our service. They\'ll make it really easy for you.');
+        
+        response.dial(process.env.SIGNUP_AGENT_NUMBER || process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+      } else {
+        // Not interested or unclear
+        response.say({ 
+          voice: 'Polly.Joanna-Neural',
+          rate: 'slow'
+        }, 'No problem at all! If you need technical help in the future, please call us back. Have a great day!');
+        
+        response.hangup();
+      }
+      
+      res.type('text/xml');
+      res.send(response.toString());
+      
+    } catch (error) {
+      logger.error('Error handling signup response:', error);
+      
+      const response = new twilio.twiml.VoiceResponse();
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, 'Let me connect you with someone who can help you.');
+      response.dial(process.env.HUMAN_AGENT_NUMBER || '+1-800-555-0199');
+      
+      res.type('text/xml');
+      res.send(response.toString());
+    }
+  }
+
+  // Handle follow-up after AI response
   async handleFollowUp(req, res) {
     try {
       const { CallSid, RecordingUrl } = req.body;
       
-      logger.info(`Processing follow-up for call: ${CallSid}`);
-      
-      // For now, just end the call gracefully
-      const twimlResponse = twilioService.createGoodbyeResponse();
-      res.type('text/xml');
-      res.send(twimlResponse);
+      if (RecordingUrl) {
+        const transcription = await whisperService.transcribeAudio(RecordingUrl);
+        const followupText = transcription.text.toLowerCase();
+        
+        const response = new twilio.twiml.VoiceResponse();
+        
+        if (followupText.includes('more') || followupText.includes('help') || 
+            followupText.includes('question') || followupText.includes('another')) {
+          // They need more help
+          response.say({ 
+            voice: 'Polly.Joanna-Neural',
+            rate: 'slow'
+          }, 'Of course! What else can I help you with?');
+          
+          response.record({
+            action: '/webhooks/twilio/support-request',
+            method: 'POST',
+            maxLength: 30,
+            playBeep: false,
+            finishOnKey: '#'
+          });
+        } else {
+          // They're done
+          response.say({ 
+            voice: 'Polly.Joanna-Neural',
+            rate: 'slow'
+          }, 'Perfect! Thank you for calling. Remember, you can call us anytime you need help. Have a wonderful day!');
+          
+          response.hangup();
+        }
+        
+        res.type('text/xml');
+        res.send(response.toString());
+      } else {
+        // No recording, assume they're done
+        const response = new twilio.twiml.VoiceResponse();
+        response.say({ 
+          voice: 'Polly.Joanna-Neural',
+          rate: 'slow'
+        }, 'Thank you for calling! Have a great day!');
+        response.hangup();
+        
+        res.type('text/xml');
+        res.send(response.toString());
+      }
       
     } catch (error) {
       logger.error('Error in handleFollowUp:', error);
       
       const response = new twilio.twiml.VoiceResponse();
-      response.say({ voice: 'Polly.Joanna-Neural' }, 'Thank you for calling. Goodbye!');
+      response.say({ 
+        voice: 'Polly.Joanna-Neural',
+        rate: 'slow'
+      }, 'Thank you for calling! Have a wonderful day!');
       response.hangup();
       
       res.type('text/xml');
@@ -164,7 +508,7 @@ class WebhookController {
     }
   }
 
-  // Handle call status updates
+  // Handle call status updates (existing method)
   async handleCallStatus(req, res) {
     try {
       const { CallSid, CallStatus, CallDuration } = req.body;
@@ -190,126 +534,10 @@ class WebhookController {
     }
   }
 
-  // Handle user interruptions during AI responses
-  async handleInterruption(req, res) {
-    try {
-      const { CallSid, SpeechResult, Confidence } = req.body;
-      
-      logger.info(`User interrupted during response: "${SpeechResult}" (confidence: ${Confidence})`);
-      
-      // If the interruption has sufficient confidence, process it
-      if (Confidence && parseFloat(Confidence) > 0.6) {
-        // Generate immediate response to interruption
-        const twimlResponse = twilioService.createInterruptionResponse(SpeechResult);
-        res.type('text/xml');
-        res.send(twimlResponse);
-      } else {
-        // Low confidence interruption, continue with original flow
-        const twimlResponse = twilioService.createGoodbyeResponse();
-        res.type('text/xml');
-        res.send(twimlResponse);
-      }
-      
-    } catch (error) {
-      logger.error('Error handling interruption:', error);
-      
-      const response = new twilio.twiml.VoiceResponse();
-      response.say({ voice: 'Polly.Joanna-Neural' }, 'I\'m sorry, I didn\'t catch that. Could you please repeat your question?');
-      response.redirect('/webhooks/twilio/handle-follow-up');
-      
-      res.type('text/xml');
-      res.send(response.toString());
-    }
-  }
-
-  // Handle recording after interruption - FIXED VERSION
-  async handleInterruptionRecording(req, res) {
-    try {
-      const { CallSid, RecordingUrl, RecordingDuration } = req.body;
-      
-      logger.info(`Processing interruption recording for call: ${CallSid}`);
-      
-      // Process the interruption recording with same logic as main recording
-      let transcription, aiResponse, session;
-      
-      try {
-        session = await callSessionService.getCallSessionBySid(CallSid);
-        logger.info(`Found session for interruption: ${session?.id || 'none'}`);
-      } catch (dbError) {
-        logger.warn(`Database error getting session: ${dbError.message}`);
-      }
-
-      try {
-        logger.info('Starting Whisper transcription for interruption...');
-        transcription = await whisperService.transcribeAudio(RecordingUrl);
-        logger.info(`Interruption transcription: "${transcription.text}" (confidence: ${transcription.confidence})`);
-      } catch (whisperError) {
-        logger.error(`Whisper error: ${whisperError.message}`);
-        transcription = { 
-          text: "I understand. Is there anything else I can help you with?", 
-          confidence: 0,
-          error: true
-        };
-      }
-
-      if (!transcription.error && transcription.confidence > 0) {
-        try {
-          logger.info('Generating AI response for interruption...');
-          aiResponse = await aiService.generateSupportResponse(transcription.text);
-          logger.info(`AI response generated for interruption (confidence: ${aiResponse.confidence})`);
-        } catch (aiError) {
-          logger.error(`AI service error: ${aiError.message}`);
-          aiResponse = {
-            aiResponse: "I understand. Is there anything else I can help you with?",
-            confidence: 'high'
-          };
-        }
-      } else {
-        aiResponse = {
-          aiResponse: "I understand. Is there anything else I can help you with?",
-          confidence: 'high'
-        };
-      }
-
-      // Save to database if possible
-      if (session && transcription.text) {
-        try {
-          await callSessionService.addTranscript(session.id, 'user', transcription.text, transcription.confidence);
-          await callSessionService.addTranscript(session.id, 'ai', aiResponse.aiResponse);
-          logger.info('Saved interruption transcripts to database');
-        } catch (dbError) {
-          logger.warn(`Database save error: ${dbError.message}`);
-        }
-      }
-      
-      // Generate response - no escalation for interruptions
-      const twimlResponse = twilioService.createResponseWithAnswer(aiResponse.aiResponse, false);
-      res.type('text/xml');
-      res.send(twimlResponse);
-      
-    } catch (error) {
-      logger.error('Error handling interruption recording:', error);
-      
-      const twimlResponse = twilioService.createGoodbyeResponse();
-      res.type('text/xml');
-      res.send(twimlResponse);
-    }
-  }
-
-  // Handle partial speech detection (real-time interruption detection)
-  async handlePartialSpeech(req, res) {
-    try {
-      const { CallSid, PartialSpeechResult } = req.body;
-      
-      logger.info(`Partial speech detected: "${PartialSpeechResult}"`);
-      
-      // Just acknowledge - the main interruption will be handled by handleInterruption
-      res.status(200).send('OK');
-      
-    } catch (error) {
-      logger.error('Error handling partial speech:', error);
-      res.status(200).send('OK');
-    }
+  // Legacy method for backward compatibility (if you had this)
+  async handleRecording(req, res) {
+    logger.info('handleRecording called - redirecting to voice auth flow');
+    return this.handleVoiceAuth(req, res);
   }
 }
 
