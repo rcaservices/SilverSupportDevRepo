@@ -81,7 +81,7 @@ class WebhookController {
       } else if (authResult.action === 'start_signup_flow') {
         this.handleNewUserSignup(response, authResult);
       } else if (authResult.action === 'request_re_enrollment') {
-        this.handleReEnrollment(response, authResult);
+        response.say({ voice: "Polly.Joanna-Neural", rate: "slow" }, "Let me connect you with an agent."); response.dial(process.env.HUMAN_AGENT_NUMBER || "+1-800-555-0199");
       } else {
         this.handleFallbackToHuman(response, authResult);
       }
