@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const webhookController = require('../controllers/webhookController');
+// Also add the Twilio auth middleware at the top:
+const validateTwilioSignature = require('../middleware/twilioAuth');
+router.use('/twilio/*', validateTwilioSignature);
 
 // Basic Twilio webhook endpoints
 router.post('/twilio/incoming', webhookController.handleIncomingCall);
@@ -16,5 +19,11 @@ router.post('/twilio/handle-interruption-recording', webhookController.handleInt
 router.post('/twilio/partial-speech', webhookController.handlePartialSpeech);
 router.post('/twilio/interruption-complete', (req, res) => res.status(200).send('OK'));
 router.post('/twilio/transcription-complete', (req, res) => res.status(200).send('OK'));
+
+// Add these new routes to your existing webhooks.js
+router.post('/twilio/voice-auth', webhookController.handleVoiceAuth);
+router.post('/twilio/support-request', webhookController.handleSupportRequest);
+router.post('/twilio/complete-enrollment', webhookController.handleCompleteEnrollment);
+router.post('/twilio/signup-response', webhookController.handleSignupResponse);
 
 module.exports = router;
