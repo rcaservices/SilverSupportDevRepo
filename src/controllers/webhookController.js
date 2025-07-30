@@ -1,4 +1,4 @@
-// File: src/controllers/webhookController.js (Fixed Version)
+// File: src/controllers/webhookController.js (Complete Fixed Version)
 const twilioService = require('../services/twilioService');
 const whisperService = require('../services/whisperService');
 const aiService = require('../services/aiService');
@@ -73,18 +73,17 @@ class WebhookController {
       
       const response = new twilio.twiml.VoiceResponse();
       
-      if (authResult.action === "proceed_with_support") {
+      // Handle the authentication result
+      if (authResult.action === 'proceed_with_support') {
         this.handleAuthenticatedUser(response, authResult);
-      } else if (authResult.action === "complete_enrollment" || authResult.action === "complete_voice_enrollment") {
+      } else if (authResult.action === 'complete_enrollment' || authResult.action === 'complete_voice_enrollment') {
         this.handleVoiceEnrollment(response, authResult);
-      } else if (authResult.action === "start_signup_flow") {
+      } else if (authResult.action === 'start_signup_flow') {
         this.handleNewUserSignup(response, authResult);
-      } else if (authResult.action === "request_re_enrollment") {
+      } else if (authResult.action === 'request_re_enrollment') {
         this.handleReEnrollment(response, authResult);
       } else {
         this.handleFallbackToHuman(response, authResult);
-      }
-          this.handleFallbackToHuman.bind(this)(response, authResult);
       }
       
       res.type('text/xml');
@@ -497,7 +496,7 @@ class WebhookController {
     }
   }
 
-  // Handle call status updates (existing method)
+  // Handle call status updates
   async handleCallStatus(req, res) {
     try {
       const { CallSid, CallStatus, CallDuration } = req.body;
@@ -523,7 +522,7 @@ class WebhookController {
     }
   }
 
-  // Legacy method for backward compatibility (if you had this)
+  // Legacy method for backward compatibility
   async handleRecording(req, res) {
     logger.info('handleRecording called - redirecting to voice auth flow');
     return this.handleVoiceAuth(req, res);
