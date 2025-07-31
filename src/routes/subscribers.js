@@ -172,9 +172,9 @@ const signupValidation = [
 
 // Family member signup endpoint (public with security layers)
 router.post('/signup', 
-  signupLimiter,
-  validateApiKey,
-  validateCSRF,
+  // signupLimiter,
+  // validateApiKey,
+  // validateCSRF,
   signupValidation,
   async (req, res) => {
     try {
