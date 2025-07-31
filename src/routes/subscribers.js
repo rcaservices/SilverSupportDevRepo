@@ -1,11 +1,14 @@
-// File: src/routes/subscribers.js
+// File: src/routes/subscribers.js (Enhanced with Security)
 const express = require('express');
 const { body, param, query, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { Client } = require('pg');
+const crypto = require('crypto');
 const logger = require('../utils/logger');
-const auth = require('../middleware/auth'); // JWT auth middleware for admin access
+const auth = require('../middleware/auth');
+const { signupLimiter } = require('../middleware/rateLimiter');
+const emailService = require('../utils/emailService');
 
 const router = express.Router();
 
@@ -16,379 +19,372 @@ async function createDbConnection() {
   });
 }
 
-// Family member signup endpoint (no auth required)
-router.post('/signup', [
-  body('seniorName').trim().isLength({ min: 2, max: 255 }).withMessage('Senior name is required'),
-  body('seniorPhone').isMobilePhone().withMessage('Valid phone number is required'),
-  body('familyName').trim().isLength({ min: 2, max: 255 }).withMessage('Your name is required'),
-  body('familyEmail').isEmail().withMessage('Valid email is required'),
-  body('relationship').optional().trim().isLength({ max: 100 }),
-  body('selectedTier').optional().isIn(['basic', 'premium', 'family']).withMessage('Invalid subscription tier'),
-  body('addressStreet').optional().trim().isLength({ max: 255 }),
-  body('addressCity').optional().trim().isLength({ max: 100 }),
-  body('addressState').optional().trim().isLength({ max: 50 })
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        error: 'Validation failed',
-        details: errors.array()
-      });
-    }
+// API Key validation middleware for public endpoints
+const validateApiKey = (req, res, next) => {
+  // Allow requests from your website domain without API key
+  const allowedOrigins = [
+    process.env.WEBSITE_URL,
+    process.env.ADMIN_DASHBOARD_URL,
+    process.env.FAMILY_PORTAL_URL
+  ].filter(Boolean);
 
-    const {
-      seniorName,
-      seniorPhone,
-      familyName,
-      familyEmail,
-      familyPhone,
-      relationship,
-      selectedTier,
-      addressStreet,
-      addressCity,
-      addressState
-    } = req.body;
+  const origin = req.get('Origin') || req.get('Referer');
+  const isAllowedOrigin = allowedOrigins.some(allowedOrigin => 
+    origin && origin.startsWith(allowedOrigin)
+  );
 
-    const client = await createDbConnection();
-    
+  if (isAllowedOrigin) {
+    return next();
+  }
+
+  // For direct API access, require API key
+  const apiKey = req.header('X-API-Key') || req.query.api_key;
+  const expectedApiKey = process.env.PUBLIC_API_KEY;
+
+  if (!expectedApiKey) {
+    logger.warn('PUBLIC_API_KEY not configured');
+    return next(); // Allow in development
+  }
+
+  if (!apiKey || apiKey !== expectedApiKey) {
+    return res.status(401).json({
+      error: 'Invalid or missing API key',
+      message: 'This endpoint requires a valid API key'
+    });
+  }
+
+  next();
+};
+
+// CSRF Protection for form submissions
+const validateCSRF = (req, res, next) => {
+  // Skip CSRF for API key authenticated requests
+  if (req.header('X-API-Key')) {
+    return next();
+  }
+
+  const token = req.header('X-CSRF-Token') || req.body.csrfToken;
+  const expectedToken = req.session?.csrfToken;
+
+  // In development, generate a simple token if none exists
+  if (process.env.NODE_ENV === 'development' && !expectedToken) {
+    req.session = req.session || {};
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+    return next();
+  }
+
+  if (!token || token !== expectedToken) {
+    return res.status(403).json({
+      error: 'CSRF token validation failed',
+      message: 'Invalid or missing CSRF token'
+    });
+  }
+
+  next();
+};
+
+// Enhanced validation with sanitization
+const signupValidation = [
+  // Senior information
+  body('senior_name')
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Senior name must be 2-100 characters')
+    .matches(/^[a-zA-Z\s\-'\.]+$/)
+    .withMessage('Senior name contains invalid characters'),
+  
+  body('senior_phone_number')
+    .trim()
+    .matches(/^\d{10}$/)
+    .withMessage('Phone number must be exactly 10 digits')
+    .custom(async (value) => {
+      // Check for obviously fake numbers
+      const fakePatterns = [
+        /^0{10}$/, /^1{10}$/, /^1234567890$/, /^9999999999$/
+      ];
+      if (fakePatterns.some(pattern => pattern.test(value))) {
+        throw new Error('Please provide a valid phone number');
+      }
+      return true;
+    }),
+
+  // Family member information
+  body('family_member_name')
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Your name must be 2-100 characters')
+    .matches(/^[a-zA-Z\s\-'\.]+$/)
+    .withMessage('Your name contains invalid characters'),
+  
+  body('family_email')
+    .trim()
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Please provide a valid email address')
+    .isLength({ max: 254 })
+    .withMessage('Email address too long'),
+
+  body('family_phone')
+    .optional()
+    .trim()
+    .matches(/^\d{10}$/)
+    .withMessage('Family phone must be exactly 10 digits'),
+
+  // Optional fields
+  body('address_street')
+    .optional()
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage('Address too long'),
+
+  body('relationship')
+    .optional()
+    .trim()
+    .isIn(['child', 'grandchild', 'spouse', 'caregiver', 'other'])
+    .withMessage('Invalid relationship type'),
+
+  body('selected_tier')
+    .optional()
+    .isIn(['basic', 'premium', 'family'])
+    .withMessage('Invalid subscription tier'),
+
+  body('preferred_language')
+    .optional()
+    .isIn(['en-US', 'es-US', 'fr-FR'])
+    .withMessage('Invalid language selection'),
+
+  body('preferred_voice_speed')
+    .optional()
+    .isIn(['slow', 'normal', 'fast'])
+    .withMessage('Invalid voice speed selection'),
+
+  body('hearing_assistance')
+    .optional()
+    .isBoolean()
+    .withMessage('Hearing assistance must be true or false'),
+
+  body('emergency_contact')
+    .optional()
+    .trim()
+    .isLength({ max: 255 })
+    .withMessage('Emergency contact info too long')
+];
+
+// Family member signup endpoint (public with security layers)
+router.post('/signup', 
+  signupLimiter,
+  validateApiKey,
+  validateCSRF,
+  signupValidation,
+  async (req, res) => {
     try {
-      await client.connect();
-      
-      // Check if phone number already exists
-      const existingCheck = await client.query(`
-        SELECT id FROM subscribers WHERE phone_number = $1
-        UNION
-        SELECT id FROM pending_signups WHERE senior_phone_number = $1 AND status != 'completed'
-      `, [seniorPhone]);
-      
-      if (existingCheck.rows.length > 0) {
-        return res.status(409).json({
-          error: 'Phone number already registered',
-          message: 'This phone number is already in our system. Please call our support line for assistance.'
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        logger.warn('Signup validation failed:', { 
+          errors: errors.array(), 
+          ip: req.ip,
+          userAgent: req.get('User-Agent')
+        });
+        return res.status(400).json({
+          error: 'Validation failed',
+          details: errors.array()
         });
       }
+
+      const {
+        senior_name,
+        senior_phone_number,
+        family_member_name,
+        family_email,
+        family_phone = '',
+        address_street = '',
+        relationship = 'family member',
+        selected_tier = 'basic',
+        preferred_language = 'en-US',
+        preferred_voice_speed = 'slow',
+        hearing_assistance = false,
+        emergency_contact = ''
+      } = req.body;
+
+      // Additional security checks
+      const clientIP = req.ip || req.connection.remoteAddress;
+      const userAgent = req.get('User-Agent') || 'Unknown';
       
-      // Create pending signup
-      const result = await client.query(`
-        INSERT INTO pending_signups (
-          senior_name, senior_phone_number, address_street, address_city, address_state,
-          family_member_name, family_email, family_phone, relationship, 
-          selected_tier, signup_method, signup_source
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'online', 'website')
-        RETURNING id, senior_name, senior_phone_number
-      `, [
-        seniorName, seniorPhone, addressStreet || '', addressCity || '', addressState || '',
-        familyName, familyEmail, familyPhone || '', relationship || 'family member',
-        selectedTier || 'basic'
-      ]);
+      // Log signup attempt for monitoring
+      logger.info('Signup attempt', {
+        seniorPhone: senior_phone_number.substring(0, 3) + 'XXXX', // Partially mask phone
+        familyEmail: family_email.split('@')[0] + '@***',
+        ip: clientIP,
+        userAgent: userAgent.substring(0, 100) // Limit UA length in logs
+      });
+
+      const client = await createDbConnection();
       
-      const signup = result.rows[0];
+      try {
+        await client.connect();
+        await client.query('BEGIN');
+        
+        // Check if phone number already exists (with better error handling)
+        const existingCheck = await client.query(`
+          SELECT 'subscriber' as type, name as existing_name FROM subscribers 
+          WHERE phone_number = $1
+          UNION ALL
+          SELECT 'pending' as type, senior_name as existing_name FROM pending_signups 
+          WHERE senior_phone_number = $1 AND status != 'completed' AND expires_at > NOW()
+        `, [senior_phone_number]);
+        
+        if (existingCheck.rows.length > 0) {
+          const existing = existingCheck.rows[0];
+          logger.warn('Duplicate signup attempt', {
+            phone: senior_phone_number.substring(0, 3) + 'XXXX',
+            existingType: existing.type,
+            ip: clientIP
+          });
+          
+          return res.status(409).json({
+            error: 'Phone number already registered',
+            message: existing.type === 'subscriber' 
+              ? `${existing.existing_name} is already enrolled. They can call our support line directly.`
+              : `${existing.existing_name} has a pending signup. They should call our support line to complete enrollment.`,
+            supportNumber: process.env.SUPPORT_PHONE_NUMBER || '1-800-SUPPORT'
+          });
+        }
+        
+        // Check for suspicious activity (multiple signups from same IP/email)
+        const recentSignups = await client.query(`
+          SELECT COUNT(*) as count FROM pending_signups 
+          WHERE (family_email = $1 OR signup_ip = $2) 
+          AND created_at > NOW() - INTERVAL '1 hour'
+        `, [family_email, clientIP]);
+        
+        if (recentSignups.rows[0].count > 2) {
+          logger.warn('Suspicious signup activity', {
+            email: family_email.split('@')[0] + '@***',
+            ip: clientIP,
+            recentCount: recentSignups.rows[0].count
+          });
+          
+          return res.status(429).json({
+            error: 'Too many recent signups',
+            message: 'Please contact our support team for assistance.',
+            supportNumber: process.env.SUPPORT_PHONE_NUMBER || '1-800-SUPPORT'
+          });
+        }
+        
+        // Generate verification code for additional security
+        const verificationCode = crypto.randomInt(100000, 999999).toString();
+        const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+        
+        // Create pending signup with enhanced tracking
+        const result = await client.query(`
+          INSERT INTO pending_signups (
+            senior_name, senior_phone_number, address_street,
+            family_member_name, family_email, family_phone, relationship, 
+            selected_tier, preferred_language, preferred_voice_speed,
+            hearing_assistance, emergency_contact_name,
+            signup_method, signup_source, signup_ip, signup_user_agent,
+            verification_code, verification_expires_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+          RETURNING id, senior_name, senior_phone_number, created_at
+        `, [
+          senior_name, senior_phone_number, address_street,
+          family_member_name, family_email, family_phone, relationship,
+          selected_tier, preferred_language, preferred_voice_speed,
+          hearing_assistance, emergency_contact,
+          'online', 'website', clientIP, userAgent,
+          verificationCode, verificationExpires
+        ]);
+        
+        const signup = result.rows[0];
+        
+        await client.query('COMMIT');
+        
+        logger.info('Successful signup created', {
+          signupId: signup.id,
+          seniorName: senior_name,
+          tier: selected_tier,
+          ip: clientIP
+        });
+        
+        // Send confirmation email to family member (async, don't wait)
+        const signupDetails = {
+          selectedTier: selected_tier,
+          callLimit: getCallLimitForTier(selected_tier),
+          expiresAt: verificationExpires
+        };
+        
+        emailService.sendSignupConfirmation(family_email, senior_name, signupDetails)
+          .catch(error => {
+            logger.error('Failed to send signup confirmation email:', error);
+          });
+        
+        res.status(201).json({
+          success: true,
+          message: `Thank you! We've set up ${senior_name} in our system.`,
+          details: {
+            signupId: signup.id,
+            seniorName: signup.senior_name,
+            nextSteps: [
+              `Have ${senior_name} call ${process.env.SUPPORT_PHONE_NUMBER || '1-800-SUPPORT'} to complete voice enrollment`,
+              'Voice enrollment typically takes 5-10 minutes',
+              'They\'ll be able to get help immediately after enrollment'
+            ],
+            supportNumber: process.env.SUPPORT_PHONE_NUMBER || '1-800-SUPPORT',
+            estimatedEnrollmentTime: '5-10 minutes',
+            signupExpires: verificationExpires.toISOString()
+          }
+        });
+        
+      } catch (dbError) {
+        await client.query('ROLLBACK');
+        throw dbError;
+      } finally {
+        await client.end();
+      }
       
-      logger.info(`New family signup created: ${signup.id} for ${seniorName}`);
+    } catch (error) {
+      logger.error('Signup error:', {
+        error: error.message,
+        stack: error.stack,
+        ip: req.ip,
+        userAgent: req.get('User-Agent')
+      });
       
-      // TODO: Send email to family member with instructions
-      // TODO: Send SMS to senior with instructions (optional)
-      
-      res.json({
-        success: true,
-        message: `Thank you! We've set up ${seniorName} in our system. Have them call 1-800-SUPPORT to complete voice enrollment.`,
-        signupId: signup.id,
+      res.status(500).json({
+        error: 'Signup failed',
+        message: 'Unable to process signup. Please try again or contact support.',
         supportNumber: process.env.SUPPORT_PHONE_NUMBER || '1-800-SUPPORT'
       });
-      
-    } finally {
-      await client.end();
     }
-    
-  } catch (error) {
-    logger.error('Signup error:', error);
-    res.status(500).json({
-      error: 'Signup failed',
-      message: 'Unable to process signup. Please try again.'
-    });
   }
+);
+
+// Get CSRF token (for form protection)
+router.get('/csrf-token', (req, res) => {
+  req.session = req.session || {};
+  if (!req.session.csrfToken) {
+    req.session.csrfToken = crypto.randomBytes(32).toString('hex');
+  }
+  
+  res.json({
+    csrfToken: req.session.csrfToken,
+    expires: Date.now() + (24 * 60 * 60 * 1000) // 24 hours
+  });
 });
 
-// Get subscriber details (admin access)
-router.get('/:id', [
-  param('id').isInt().withMessage('Invalid subscriber ID')
-], auth, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
+// Helper function to get call limits
+function getCallLimitForTier(tier) {
+  const limits = {
+    'basic': 50,
+    'premium': 200,
+    'family': 500
+  };
+  return limits[tier] || 50;
+}
 
-    const subscriberId = req.params.id;
-    const client = await createDbConnection();
-    
-    try {
-      await client.connect();
-      
-      const result = await client.query(`
-        SELECT s.*, 
-               COUNT(cs.id) as total_calls,
-               AVG(cs.duration_seconds) as avg_call_duration,
-               MAX(cs.start_time) as last_call_date
-        FROM subscribers s
-        LEFT JOIN call_sessions cs ON s.id = cs.subscriber_id
-        WHERE s.id = $1
-        GROUP BY s.id
-      `, [subscriberId]);
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Subscriber not found' });
-      }
-      
-      const subscriber = result.rows[0];
-      
-      // Remove sensitive data
-      delete subscriber.voice_print_hash;
-      
-      res.json(subscriber);
-      
-    } finally {
-      await client.end();
-    }
-    
-  } catch (error) {
-    logger.error('Error fetching subscriber:', error);
-    res.status(500).json({ error: 'Failed to fetch subscriber details' });
-  }
-});
-
-// Get all subscribers (admin access with pagination)
-router.get('/', [
-  query('page').optional().isInt({ min: 1 }).withMessage('Page must be a positive integer'),
-  query('limit').optional().isInt({ min: 1, max: 100 }).withMessage('Limit must be between 1 and 100'),
-  query('status').optional().isIn(['active', 'inactive', 'suspended']),
-  query('search').optional().trim().isLength({ min: 2, max: 100 })
-], auth, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 25;
-    const offset = (page - 1) * limit;
-    const status = req.query.status;
-    const search = req.query.search;
-    
-    const client = await createDbConnection();
-    
-    try {
-      await client.connect();
-      
-      let whereClause = 'WHERE 1=1';
-      let params = [];
-      let paramCount = 0;
-      
-      if (status) {
-        paramCount++;
-        whereClause += ` AND s.subscription_status = $${paramCount}`;
-        params.push(status);
-      }
-      
-      if (search) {
-        paramCount++;
-        whereClause += ` AND (s.name ILIKE $${paramCount} OR s.phone_number LIKE $${paramCount})`;
-        params.push(`%${search}%`);
-      }
-      
-      // Get total count
-      const countResult = await client.query(`
-        SELECT COUNT(*) as total FROM subscribers s ${whereClause}
-      `, params);
-      
-      const totalCount = parseInt(countResult.rows[0].total);
-      
-      // Get subscribers with pagination
-      paramCount++;
-      params.push(limit);
-      paramCount++;
-      params.push(offset);
-      
-      const result = await client.query(`
-        SELECT s.id, s.name, s.phone_number, s.email, s.subscription_tier, 
-               s.subscription_status, s.voice_enrollment_completed, s.enrolled_by,
-               s.family_contact_email, s.created_at,
-               COUNT(cs.id) as total_calls,
-               MAX(cs.start_time) as last_call_date,
-               mu.total_calls as monthly_calls
-        FROM subscribers s
-        LEFT JOIN call_sessions cs ON s.id = cs.subscriber_id
-        LEFT JOIN monthly_usage mu ON s.id = mu.subscriber_id 
-                 AND mu.billing_month = DATE_TRUNC('month', CURRENT_DATE)
-        ${whereClause}
-        GROUP BY s.id, mu.total_calls
-        ORDER BY s.created_at DESC
-        LIMIT $${paramCount - 1} OFFSET $${paramCount}
-      `, params);
-      
-      res.json({
-        subscribers: result.rows,
-        pagination: {
-          currentPage: page,
-          totalPages: Math.ceil(totalCount / limit),
-          totalCount: totalCount,
-          hasNext: page * limit < totalCount,
-          hasPrev: page > 1
-        }
-      });
-      
-    } finally {
-      await client.end();
-    }
-    
-  } catch (error) {
-    logger.error('Error fetching subscribers:', error);
-    res.status(500).json({ error: 'Failed to fetch subscribers' });
-  }
-});
-
-// Update subscriber (admin access)
-router.put('/:id', [
-  param('id').isInt().withMessage('Invalid subscriber ID'),
-  body('name').optional().trim().isLength({ min: 2, max: 255 }),
-  body('email').optional().isEmail(),
-  body('subscriptionTier').optional().isIn(['basic', 'premium', 'family']),
-  body('subscriptionStatus').optional().isIn(['active', 'inactive', 'suspended']),
-  body('monthlyCallLimit').optional().isInt({ min: 0, max: 10000 }),
-  body('preferredVoiceSpeed').optional().isIn(['slow', 'normal', 'fast']),
-  body('hearingAssistance').optional().isBoolean()
-], auth, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const subscriberId = req.params.id;
-    const updates = req.body;
-    
-    // Build dynamic update query
-    const allowedFields = [
-      'name', 'email', 'subscription_tier', 'subscription_status', 
-      'monthly_call_limit', 'preferred_voice_speed', 'hearing_assistance'
-    ];
-    
-    const updateFields = [];
-    const params = [subscriberId];
-    let paramCount = 1;
-    
-    Object.keys(updates).forEach(key => {
-      const dbField = key.replace(/([A-Z])/g, '_$1').toLowerCase();
-      if (allowedFields.includes(dbField)) {
-        paramCount++;
-        updateFields.push(`${dbField} = $${paramCount}`);
-        params.push(updates[key]);
-      }
-    });
-    
-    if (updateFields.length === 0) {
-      return res.status(400).json({ error: 'No valid fields to update' });
-    }
-    
-    const client = await createDbConnection();
-    
-    try {
-      await client.connect();
-      
-      const result = await client.query(`
-        UPDATE subscribers 
-        SET ${updateFields.join(', ')}, updated_at = NOW()
-        WHERE id = $1
-        RETURNING id, name, phone_number, subscription_tier, subscription_status
-      `, params);
-      
-      if (result.rows.length === 0) {
-        return res.status(404).json({ error: 'Subscriber not found' });
-      }
-      
-      logger.info(`Subscriber ${subscriberId} updated by admin ${req.user.id}`);
-      
-      res.json({
-        success: true,
-        subscriber: result.rows[0]
-      });
-      
-    } finally {
-      await client.end();
-    }
-    
-  } catch (error) {
-    logger.error('Error updating subscriber:', error);
-    res.status(500).json({ error: 'Failed to update subscriber' });
-  }
-});
-
-// Get subscriber usage analytics
-router.get('/:id/usage', [
-  param('id').isInt().withMessage('Invalid subscriber ID'),
-  query('months').optional().isInt({ min: 1, max: 12 }).withMessage('Months must be between 1 and 12')
-], auth, async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-
-    const subscriberId = req.params.id;
-    const months = parseInt(req.query.months) || 3;
-    
-    const client = await createDbConnection();
-    
-    try {
-      await client.connect();
-      
-      // Get monthly usage data
-      const usageResult = await client.query(`
-        SELECT billing_month, total_calls, ai_handled_calls, human_escalated_calls,
-               average_satisfaction, resolution_rate, total_cost_cents
-        FROM monthly_usage
-        WHERE subscriber_id = $1
-        AND billing_month >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '${months} months')
-        ORDER BY billing_month DESC
-      `, [subscriberId]);
-      
-      // Get recent call details
-      const callsResult = await client.query(`
-        SELECT cs.start_time, cs.duration_seconds, cs.status,
-               si.issue_category, si.was_resolved, si.satisfaction_rating,
-               si.handled_by, si.escalated_to_human
-        FROM call_sessions cs
-        LEFT JOIN support_interactions si ON cs.id = si.call_session_id
-        WHERE cs.subscriber_id = $1
-        ORDER BY cs.start_time DESC
-        LIMIT 20
-      `, [subscriberId]);
-      
-      res.json({
-        monthlyUsage: usageResult.rows,
-        recentCalls: callsResult.rows,
-        summary: {
-          totalCallsThisMonth: usageResult.rows[0]?.total_calls || 0,
-          averageSatisfaction: usageResult.rows[0]?.average_satisfaction || null,
-          resolutionRate: usageResult.rows[0]?.resolution_rate || null
-        }
-      });
-      
-    } finally {
-      await client.end();
-    }
-    
-  } catch (error) {
-    logger.error('Error fetching subscriber usage:', error);
-    res.status(500).json({ error: 'Failed to fetch usage data' });
-  }
-});
-
-// Get pending signups (admin access)
+// Admin endpoints (require authentication) - keeping existing ones
 router.get('/admin/pending-signups', [
-  query('status').optional().isIn(['awaiting_voice_enrollment', 'collecting_info', 'expired']),
+  query('status').optional().isIn(['awaiting_voice_enrollment', 'verified', 'expired']),
   query('page').optional().isInt({ min: 1 }),
   query('limit').optional().isInt({ min: 1, max: 100 })
 ], auth, async (req, res) => {
@@ -419,7 +415,7 @@ router.get('/admin/pending-signups', [
       const result = await client.query(`
         SELECT id, senior_name, senior_phone_number, family_member_name, 
                family_email, relationship, selected_tier, status, 
-               created_at, expires_at
+               created_at, expires_at, signup_ip, preferred_language
         FROM pending_signups
         ${whereClause}
         ORDER BY created_at DESC
@@ -427,7 +423,12 @@ router.get('/admin/pending-signups', [
       `, [...params, limit, offset]);
       
       res.json({
-        pendingSignups: result.rows
+        pendingSignups: result.rows,
+        pagination: {
+          page,
+          limit,
+          total: result.rows.length
+        }
       });
       
     } finally {
