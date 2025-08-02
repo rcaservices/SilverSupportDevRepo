@@ -1,6 +1,6 @@
 {
   "name": "ai-technical-support-voice-auth",
-  "version": "2.0.0",
+  "version": "1.1.0",
   "description": "AI-powered technical support service with voice authentication for seniors",
   "main": "server.js",
   "scripts": {
