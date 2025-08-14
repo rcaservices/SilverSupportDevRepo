@@ -4,7 +4,7 @@
   "description": "AI-powered technical support service with voice authentication for seniors",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node src/app.js",
     "dev": "nodemon server.js",
     "test": "jest",
     "test:watch": "jest --watch",
