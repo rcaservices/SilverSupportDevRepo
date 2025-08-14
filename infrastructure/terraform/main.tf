@@ -275,19 +275,22 @@ resource "aws_security_group" "rds" {
 
 # S3 Buckets
 resource "aws_s3_bucket" "voice_recordings" {
-  bucket = "${local.name_prefix}-voice-recordings"
+  bucket        = "${local.name_prefix}-voice-recordings"
+  force_destroy = true  # Allow destruction even if not empty
 
   tags = local.common_tags
 }
 
 resource "aws_s3_bucket" "logs" {
-  bucket = "${local.name_prefix}-logs"
+  bucket        = "${local.name_prefix}-logs"
+  force_destroy = true  # Allow destruction even if not empty
 
   tags = local.common_tags
 }
 
 resource "aws_s3_bucket" "backups" {
-  bucket = "${local.name_prefix}-backups"
+  bucket        = "${local.name_prefix}-backups"
+  force_destroy = true  # Allow destruction even if not empty
 
   tags = local.common_tags
 }

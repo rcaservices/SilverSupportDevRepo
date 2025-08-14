@@ -33,11 +33,13 @@ resource "aws_db_parameter_group" "main" {
 resource "random_password" "db_password" {
   length  = 32
   special = true
+  # Exclude characters that RDS doesn't allow: '/', '@', '"', ' '
+  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 # Store RDS credentials in Secrets Manager
 resource "aws_secretsmanager_secret" "db_credentials" {
-  name        = "${local.name_prefix}-db-credentials"
+  name        = "${local.name_prefix}-db-credentials-v2"
   description = "Database credentials for SilverSupport Alpha"
 
   tags = local.common_tags

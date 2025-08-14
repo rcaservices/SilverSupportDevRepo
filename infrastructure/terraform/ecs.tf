@@ -176,7 +176,7 @@ resource "aws_iam_role_policy" "ecs_task" {
 
 # Application Secrets in Secrets Manager
 resource "aws_secretsmanager_secret" "app_secrets" {
-  name        = "${local.name_prefix}-app-secrets"
+  name        = "${local.name_prefix}-app-secrets-v2"
   description = "Application secrets for SilverSupport Alpha"
 
   tags = local.common_tags
@@ -200,6 +200,7 @@ resource "aws_secretsmanager_secret_version" "app_secrets" {
 resource "random_password" "jwt_secret" {
   length  = 64
   special = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 resource "random_password" "encryption_key" {
@@ -210,6 +211,7 @@ resource "random_password" "encryption_key" {
 resource "random_password" "session_secret" {
   length  = 64
   special = true
+  override_special = "!#$%&*()-_=+[]{}<>:?"
 }
 
 # ECS Task Definition
