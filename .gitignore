@@ -116,3 +116,24 @@ docker-compose.override.yml
 
 # Knowledge base uploads
 uploads/
+
+# Terraform
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfplan
+*.tfvars
+.terraformrc
+terraform.rc
+
+# AWS and deployment
+aws-config.env
+*.pem
+*.key
+
+# Large files and binaries
+*.zip
+*.tar.gz
+*.dmg
+
