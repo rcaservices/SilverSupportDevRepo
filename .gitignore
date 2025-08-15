@@ -137,3 +137,6 @@ aws-config.env
 *.tar.gz
 *.dmg
 
+.env.production
+.env.staging
+.env.local
