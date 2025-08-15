@@ -1,0 +1,58 @@
+# infrastructure/terraform/terraform.tfvars.example
+# Copy this file to terraform.tfvars and fill in your actual values
+# DO NOT commit terraform.tfvars to version control!
+
+# Environment Configuration
+environment    = "prod"              # or "dev", "staging"
+project_name   = "ai-support"
+
+# Message Length Limits (prevents Claude errors)
+message_limits = {
+  max_message_length       = 8000    # Maximum message length for Claude
+  max_transcription_length = 5000    # Maximum Whisper transcription length
+  max_webhook_body_size    = 10000   # Maximum webhook body size
+  max_ai_request_length    = 8000    # Maximum AI request length
+  enable_validation        = true    # Enable message validation
+}
+
+# AI Service API Keys (REQUIRED)
+anthropic_api_key = "sk-ant-your-anthropic-api-key-here"
+openai_api_key    = "sk-your-openai-api-key-here"
+
+# Twilio Configuration (REQUIRED)
+twilio_account_sid   = "ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+twilio_auth_token    = "your-twilio-auth-token-here"
+twilio_phone_number  = "+1234567890"  # Your Twilio phone number
+
+# Database Configuration (REQUIRED)
+database_url = "postgresql://username:password@hostname:5432/database_name"
+
+# Security Secrets (REQUIRED - Generate secure random values)
+jwt_secret     = "your-32-character-minimum-jwt-secret-here"
+encryption_key = "your-exactly-32-character-key-here!" # Must be exactly 32 chars
+session_secret = "your-session-secret-at-least-24-chars"
+
+# Voice Authentication (OPTIONAL - Azure Speech Service)
+azure_speech_key    = ""           # Leave empty if not using Azure Speech
+azure_speech_region = ""           # e.g., "eastus", "westus2"
+
+# Email Service (OPTIONAL - For notifications)
+smtp_user     = ""                 # SMTP username
+smtp_password = ""                 # SMTP password
+
+# Redis (OPTIONAL - For session storage)
+redis_url = ""                     # e.g., "redis://localhost:6379"
+
+# Example values for different environments:
+#
+# DEV:
+# environment = "dev"
+# database_url = "postgresql://postgres:password@localhost:5432/ai_support_dev"
+#
+# STAGING:
+# environment = "staging"
+# database_url = "postgresql://user:pass@staging-db:5432/ai_support_staging"
+#
+# PROD:
+# environment = "prod"
+# database_url = "postgresql://user:pass@prod-db:5432/ai_support_prod"

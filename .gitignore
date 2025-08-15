@@ -140,3 +140,14 @@ aws-config.env
 .env.production
 .env.staging
 .env.local
+
+# Terraform
+*.tfvars
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# But allow example files
+!terraform.tfvars.example
+!*.tfvars.example
