@@ -83,6 +83,11 @@ resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
 
+# Random ID for unique bucket names
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
 # Random password for database
 resource "random_password" "db_password" {
   length  = 32
