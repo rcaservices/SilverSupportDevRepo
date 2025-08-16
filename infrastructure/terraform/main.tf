@@ -1,5 +1,5 @@
 # infrastructure/terraform/main.tf
-# Corrected version with proper S3 lifecycle configuration
+# Complete infrastructure configuration
 
 terraform {
   required_version = ">= 1.0"
@@ -83,7 +83,6 @@ resource "random_id" "bucket_suffix" {
   byte_length = 4
 }
 
-
 # Random password for database
 resource "random_password" "db_password" {
   length  = 32
@@ -153,7 +152,7 @@ resource "aws_route_table" "public" {
   })
 }
 
-# Route Table Associations
+# Route Table Associations for Public Subnets
 resource "aws_route_table_association" "public" {
   count = length(aws_subnet.public)
 
@@ -185,6 +184,8 @@ resource "aws_nat_gateway" "main" {
 
 # Route Table for Private Subnets
 resource "aws_route_table" "private" {
+  count = length(aws_subnet.private)
+
   vpc_id = aws_vpc.main.id
 
   route {
@@ -193,7 +194,7 @@ resource "aws_route_table" "private" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-private-rt"
+    Name = "${var.project_name}-${var.environment}-private-rt-${count.index + 1}"
   })
 }
 
@@ -201,104 +202,25 @@ resource "aws_route_table_association" "private" {
   count = length(aws_subnet.private)
 
   subnet_id      = aws_subnet.private[count.index].id
-  route_table_id = aws_route_table.private.id
+  route_table_id = aws_route_table.private[count.index].id
 }
 
-# Security Groups
-resource "aws_security_group" "app" {
-  name_prefix = "${var.project_name}-${var.environment}-app-"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port   = 3000
-    to_port     = 3000
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-app-sg"
-  })
-}
-
-resource "aws_security_group" "db" {
-  name_prefix = "${var.project_name}-${var.environment}-db-"
-  vpc_id      = aws_vpc.main.id
-
-  ingress {
-    from_port       = 5432
-    to_port         = 5432
-    protocol        = "tcp"
-    security_groups = [aws_security_group.app.id]
-  }
-
-  tags = merge(local.common_tags, {
-    Name = "${var.project_name}-${var.environment}-db-sg"
-  })
-}
-
-# S3 Bucket for Voice Recordings
+# S3 Buckets
 resource "aws_s3_bucket" "voice_recordings" {
   bucket = "${var.project_name}-${var.environment}-voice-recordings-${random_id.bucket_suffix.hex}"
 
   tags = merge(local.common_tags, {
-    Name        = "${var.project_name}-${var.environment}-voice-recordings"
-    Purpose     = "voice-recordings"
-    Compliance  = "7-year-retention"
+    Name = "${var.project_name}-${var.environment}-voice-recordings"
   })
 }
 
-# S3 Bucket for Application Logs
-resource "aws_s3_bucket" "logs" {
-  bucket = "${var.project_name}-${var.environment}-logs-${random_id.bucket_suffix.hex}"
-
-  tags = merge(local.common_tags, {
-    Name    = "${var.project_name}-${var.environment}-logs"
-    Purpose = "application-logs"
-  })
-}
-
-# S3 Bucket for Backups
-resource "aws_s3_bucket" "backups" {
-  bucket = "${var.project_name}-${var.environment}-backups-${random_id.bucket_suffix.hex}"
-
-  tags = merge(local.common_tags, {
-    Name    = "${var.project_name}-${var.environment}-backups"
-    Purpose = "database-backups"
-  })
-}
-
-# S3 Bucket Versioning
 resource "aws_s3_bucket_versioning" "voice_recordings" {
   bucket = aws_s3_bucket.voice_recordings.id
-  
   versioning_configuration {
     status = "Enabled"
   }
 }
 
-# S3 Bucket Server-side Encryption
 resource "aws_s3_bucket_server_side_encryption_configuration" "voice_recordings" {
   bucket = aws_s3_bucket.voice_recordings.id
 
@@ -309,22 +231,61 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "voice_recordings"
   }
 }
 
-# S3 Bucket Public Access Block
-resource "aws_s3_bucket_public_access_block" "voice_recordings" {
-  bucket = aws_s3_bucket.voice_recordings.id
+resource "aws_s3_bucket" "logs" {
+  bucket = "${var.project_name}-${var.environment}-logs-${random_id.bucket_suffix.hex}"
 
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
+  tags = merge(local.common_tags, {
+    Name = "${var.project_name}-${var.environment}-logs"
+  })
 }
 
-# S3 Lifecycle Configuration (FIXED)
-resource "aws_s3_bucket_lifecycle_configuration" "voice_recordings" {
-  bucket = aws_s3_bucket.voice_recordings.id
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket = aws_s3_bucket.logs.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "logs" {
+  bucket = aws_s3_bucket.logs.id
 
   rule {
-    id     = "voice_recording_lifecycle"
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket" "backups" {
+  bucket = "${var.project_name}-${var.environment}-backups-${random_id.bucket_suffix.hex}"
+
+  tags = merge(local.common_tags, {
+    Name = "${var.project_name}-${var.environment}-backups"
+  })
+}
+
+resource "aws_s3_bucket_versioning" "backups" {
+  bucket = aws_s3_bucket.backups.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+resource "aws_s3_bucket_server_side_encryption_configuration" "backups" {
+  bucket = aws_s3_bucket.backups.id
+
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "AES256"
+    }
+  }
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "backups" {
+  bucket = aws_s3_bucket.backups.id
+
+  rule {
+    id     = "backup_lifecycle"
     status = "Enabled"
 
     filter {
@@ -402,14 +363,14 @@ resource "aws_db_instance" "main" {
   username = "postgres"
   password = random_password.db_password.result
 
-  vpc_security_group_ids = [aws_security_group.db.id]
+  vpc_security_group_ids = [aws_security_group.database.id]
   db_subnet_group_name   = aws_db_subnet_group.main.name
 
   backup_retention_period = 7
   backup_window          = "03:00-04:00"
   maintenance_window     = "Sun:04:00-Sun:05:00"
 
-  skip_final_snapshot = var.environment != "prod"
+  skip_final_snapshot       = var.environment != "prod"
   final_snapshot_identifier = var.environment == "prod" ? "${var.project_name}-${var.environment}-final-snapshot" : null
 
   tags = merge(local.common_tags, {
@@ -454,9 +415,4 @@ output "cloudwatch_log_groups" {
     ecs         = aws_cloudwatch_log_group.ecs.name
     application = aws_cloudwatch_log_group.application.name
   }
-}
-
-output "app_security_group_id" {
-  description = "ID of the application security group"
-  value       = aws_security_group.app.id
 }

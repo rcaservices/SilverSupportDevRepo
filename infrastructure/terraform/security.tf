@@ -1,5 +1,5 @@
-# File: infrastructure/terraform/security.tf
-# Security Groups and IAM Configuration
+# infrastructure/terraform/security.tf
+# Security Groups and VPC Endpoints (Final Fixed Version)
 
 # Security Groups
 resource "aws_security_group" "alb" {
@@ -69,8 +69,9 @@ resource "aws_security_group" "ecs" {
   })
 }
 
-resource "aws_security_group" "rds" {
-  name        = "${local.name_prefix}-rds-sg"
+# Single database security group (use only this one)
+resource "aws_security_group" "database" {
+  name        = "${local.name_prefix}-database-sg"
   description = "Security group for RDS database"
   vpc_id      = aws_vpc.main.id
 
@@ -83,7 +84,7 @@ resource "aws_security_group" "rds" {
   }
 
   tags = merge(local.common_tags, {
-    Name = "${local.name_prefix}-rds-sg"
+    Name = "${local.name_prefix}-database-sg"
   })
 }
 
@@ -150,159 +151,6 @@ resource "aws_security_group" "vpc_endpoints" {
   })
 }
 
-# IAM Roles and Policies
-
-# ECS Task Execution Role
-resource "aws_iam_role" "ecs_task_execution" {
-  name = "${local.name_prefix}-ecs-task-execution-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-      }
-    ]
-  })
-
-  tags = local.common_tags
-}
-
-resource "aws_iam_role_policy_attachment" "ecs_task_execution" {
-  role       = aws_iam_role.ecs_task_execution.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
-}
-
-# Additional policy for Secrets Manager and CloudWatch
-resource "aws_iam_role_policy" "ecs_task_execution_additional" {
-  name = "${local.name_prefix}-ecs-task-execution-additional"
-  role = aws_iam_role.ecs_task_execution.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        Resource = [
-
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogGroup",
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogStreams"
-        ]
-        Resource = [
-          "${aws_cloudwatch_log_group.ecs.arn}*",
-          "${aws_cloudwatch_log_group.application.arn}*"
-        ]
-      }
-    ]
-  })
-}
-
-# ECS Task Role
-resource "aws_iam_role" "ecs_task" {
-  name = "${local.name_prefix}-ecs-task-role"
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Action = "sts:AssumeRole"
-        Effect = "Allow"
-        Principal = {
-          Service = "ecs-tasks.amazonaws.com"
-        }
-      }
-    ]
-  })
-
-  tags = local.common_tags
-}
-
-# Task role policy for application permissions
-resource "aws_iam_role_policy" "ecs_task" {
-  name = "${local.name_prefix}-ecs-task-policy"
-  role = aws_iam_role.ecs_task.id
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:GetObject",
-          "s3:PutObject",
-          "s3:DeleteObject",
-          "s3:PutObjectAcl"
-        ]
-        Resource = [
-          "${aws_s3_bucket.voice_recordings.arn}/*",
-          "${aws_s3_bucket.logs.arn}/*",
-          "${aws_s3_bucket.backups.arn}/*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "s3:ListBucket",
-          "s3:GetBucketLocation"
-        ]
-        Resource = [
-          aws_s3_bucket.voice_recordings.arn,
-          aws_s3_bucket.logs.arn,
-          aws_s3_bucket.backups.arn
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue"
-        ]
-        Resource = [
-
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "logs:CreateLogStream",
-          "logs:PutLogEvents",
-          "logs:DescribeLogStreams"
-        ]
-        Resource = [
-          "${aws_cloudwatch_log_group.ecs.arn}*",
-          "${aws_cloudwatch_log_group.application.arn}*"
-        ]
-      },
-      {
-        Effect = "Allow"
-        Action = [
-          "cloudwatch:PutMetricData"
-        ]
-        Resource = "*"
-        Condition = {
-          StringEquals = {
-            "cloudwatch:namespace" = "SilverSupport/Application"
-          }
-        }
-      }
-    ]
-  })
-}
-
 # RDS Enhanced Monitoring Role
 resource "aws_iam_role" "rds_monitoring" {
   name = "${local.name_prefix}-rds-monitoring-role"
@@ -339,19 +187,9 @@ output "security_group_ecs_id" {
   value       = aws_security_group.ecs.id
 }
 
-output "security_group_rds_id" {
-  description = "ID of the RDS security group"
-  value       = aws_security_group.rds.id
-}
-
-output "ecs_task_execution_role_arn" {
-  description = "ARN of the ECS task execution role"
-  value       = aws_iam_role.ecs_task_execution.arn
-}
-
-output "ecs_task_role_arn" {
-  description = "ARN of the ECS task role"
-  value       = aws_iam_role.ecs_task.arn
+output "security_group_database_id" {
+  description = "ID of the database security group"
+  value       = aws_security_group.database.id
 }
 
 output "rds_monitoring_role_arn" {

@@ -1,5 +1,5 @@
 # infrastructure/terraform/ecs-iam.tf
-# IAM roles and policies for ECS with ECR access
+# IAM roles and policies for ECS with ECR access (no duplicate data sources)
 
 # ECS Task Execution Role
 resource "aws_iam_role" "ecs_task_execution" {
@@ -168,8 +168,7 @@ resource "aws_iam_role_policy" "ecs_task" {
   })
 }
 
-# Data source to get current AWS account ID
-data "aws_caller_identity" "current" {}
+# Note: aws_caller_identity data source is defined in main.tf
 
 # Outputs
 output "ecs_task_execution_role_arn" {
