@@ -78,6 +78,11 @@ locals {
   }
 }
 
+# Random ID for unique bucket names
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
 # Random password for database
 resource "random_password" "db_password" {
   length  = 32
@@ -254,7 +259,7 @@ resource "aws_security_group" "db" {
 
 # S3 Bucket for Voice Recordings
 resource "aws_s3_bucket" "voice_recordings" {
-  bucket = "${var.project_name}-${var.environment}-voice-recordings-${random_password.db_password.id}"
+  bucket = "${var.project_name}-${var.environment}-voice-recordings-${random_id.bucket_suffix.hex}"
 
   tags = merge(local.common_tags, {
     Name        = "${var.project_name}-${var.environment}-voice-recordings"
@@ -265,7 +270,7 @@ resource "aws_s3_bucket" "voice_recordings" {
 
 # S3 Bucket for Application Logs
 resource "aws_s3_bucket" "logs" {
-  bucket = "${var.project_name}-${var.environment}-logs-${random_password.db_password.id}"
+  bucket = "${var.project_name}-${var.environment}-logs-${random_id.bucket_suffix.hex}"
 
   tags = merge(local.common_tags, {
     Name    = "${var.project_name}-${var.environment}-logs"
@@ -275,7 +280,7 @@ resource "aws_s3_bucket" "logs" {
 
 # S3 Bucket for Backups
 resource "aws_s3_bucket" "backups" {
-  bucket = "${var.project_name}-${var.environment}-backups-${random_password.db_password.id}"
+  bucket = "${var.project_name}-${var.environment}-backups-${random_id.bucket_suffix.hex}"
 
   tags = merge(local.common_tags, {
     Name    = "${var.project_name}-${var.environment}-backups"
@@ -384,7 +389,7 @@ resource "aws_db_instance" "main" {
   identifier = "${var.project_name}-${var.environment}-db"
 
   engine         = "postgres"
-  engine_version = "15.4"
+  engine_version = "15.7"
   instance_class = "db.t3.micro"
 
   allocated_storage     = 20
